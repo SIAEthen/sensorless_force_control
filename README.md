@@ -1,3 +1,3 @@
-# ATLANTIS Simulation #
+# Girona1000 w/ Bravo Simulation #
 
-This package contains all simulation setups for the ATLANTIS project.
+This package contains a simulation setup for the Girona1000 w/ Bravo.
