@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<package format="2">
+	<name>sensorless_force_control</name>
+	<version>1.0.0</version>
+	<description>The sensorless_force_control package</description>
+	<maintainer email="todo@todo.com">Todo</maintainer>
+	<license>BSD</license>
+	<author email="todo@todo.com">Todo</author>
+	<buildtool_depend>catkin</buildtool_depend>
+	<depend>roscpp</depend>
+	<depend>rospy</depend>
+    
+	<export>
+	</export>
+</package>

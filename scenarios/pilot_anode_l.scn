@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<scenario>
+    <static name="$(arg anode_name)/foot1" type="model">
+		<physical>
+			<mesh filename="$(find sensorless_force_control)/data/pilot_structure/anode_leg_phy.obj" scale="1.0" convex="true"/>
+			<origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 -0.5"/>
+		</physical>
+		<visual>
+			<mesh filename="$(find sensorless_force_control)/data/pilot_structure/anode_leg.obj" scale="1.0"/>
+			<origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 -0.5"/>
+		</visual>
+		<material name="Steel"/>
+		<look name="wfa_metalic"/>
+		<world_transform rpy="$(arg anode_rpy)" xyz="$(arg anode_xyz)"/>
+	</static>
+
+	<static name="$(arg anode_name)/body" type="box">
+		<dimensions xyz="0.12 0.12 1.0"/>
+		<origin ryp="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/>
+		<material name="Steel"/>
+		<look name="wfa_metalic"/>
+		<world_transform rpy="$(arg anode_rpy)" xyz="$(arg anode_xyz)"/>
+	</static>
+
+	<static name="$(arg anode_name)/foot2" type="model">
+		<physical>
+			<mesh filename="$(find sensorless_force_control)/data/pilot_structure/anode_leg_phy.obj" scale="1.0" convex="true"/>
+			<origin rpy="3.14159 0.0 0.0" xyz="0.0 0.0 0.5"/>
+		</physical>
+		<visual>
+			<mesh filename="$(find sensorless_force_control)/data/pilot_structure/anode_leg.obj" scale="1.0"/>
+			<origin rpy="3.14159 0.0 0.0" xyz="0.0 0.0 0.5"/>
+		</visual>
+		<material name="Steel"/>
+		<look name="wfa_metalic"/>
+		<world_transform rpy="$(arg anode_rpy)" xyz="$(arg anode_xyz)"/>
+	</static>
+</scenario>

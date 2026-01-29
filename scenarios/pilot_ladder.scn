@@ -1,0 +1,100 @@
+<?xml version="1.0"?>
+<scenario>
+	<static name="$(arg ladder_name)/left_rail" type="box">
+		<dimensions xyz="0.06 0.012 1.46"/>
+		<origin rpy="0.0 0.0 0.0" xyz="0.0 -0.206 0.0"/>
+		<material name="Steel"/>
+		<look name="wfa_yellow"/>
+		<world_transform rpy="$(arg ladder_rpy)" xyz="$(arg ladder_xyz)"/>
+	</static>
+
+	<static name="$(arg ladder_name)/left_foot_top" type="box">
+		<dimensions xyz="0.185 0.012 0.06"/>
+		<origin rpy="0.0 0.0 0.0" xyz="-0.092 -0.218 -0.69"/>
+		<material name="Steel"/>
+		<look name="wfa_yellow"/>
+		<world_transform rpy="$(arg ladder_rpy)" xyz="$(arg ladder_xyz)"/>
+	</static>
+
+	<static name="$(arg ladder_name)/left_foot_bottom" type="box">
+		<dimensions xyz="0.185 0.012 0.06"/>
+		<origin rpy="0.0 0.0 0.0" xyz="-0.092 -0.218 0.69"/>
+		<material name="Steel"/>
+		<look name="wfa_yellow"/>
+		<world_transform rpy="$(arg ladder_rpy)" xyz="$(arg ladder_xyz)"/>
+	</static>
+
+	<static name="$(arg ladder_name)/right_rail" type="box">
+		<dimensions xyz="0.06 0.012 1.46"/>
+		<origin rpy="0.0 0.0 0.0" xyz="0.0 0.206 0.0"/>
+		<material name="Steel"/>
+		<look name="wfa_yellow"/>
+		<world_transform rpy="$(arg ladder_rpy)" xyz="$(arg ladder_xyz)"/>
+	</static>
+
+	<static name="$(arg ladder_name)/right_foot_top" type="box">
+		<dimensions xyz="0.185 0.012 0.06"/>
+		<origin rpy="0.0 0.0 0.0" xyz="-0.092 0.218 -0.69"/>
+		<material name="Steel"/>
+		<look name="wfa_yellow"/>
+		<world_transform rpy="$(arg ladder_rpy)" xyz="$(arg ladder_xyz)"/>
+	</static>
+
+	<static name="$(arg ladder_name)/right_foot_bottom" type="box">
+		<dimensions xyz="0.185 0.012 0.06"/>
+		<origin rpy="0.0 0.0 0.0" xyz="-0.092 0.218 0.69"/>
+		<material name="Steel"/>
+		<look name="wfa_yellow"/>
+		<world_transform rpy="$(arg ladder_rpy)" xyz="$(arg ladder_xyz)"/>
+	</static>
+	
+	<static name="$(arg ladder_name)/step1" type="model">
+		<physical>
+			<mesh filename="$(find sensorless_force_control)/data/pilot_structure/ladder_step_phy.obj" scale="1.0" convex="true"/>
+			<origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 -0.6"/>
+		</physical>
+		<material name="Steel"/>
+		<look name="wfa_yellow"/>
+		<world_transform rpy="$(arg ladder_rpy)" xyz="$(arg ladder_xyz)"/>
+	</static>
+
+	<static name="$(arg ladder_name)/step2" type="model">
+		<physical>
+			<mesh filename="$(find sensorless_force_control)/data/pilot_structure/ladder_step_phy.obj" scale="1.0" convex="true"/>
+			<origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 -0.3"/>
+		</physical>
+		<material name="Steel"/>
+		<look name="wfa_yellow"/>
+		<world_transform rpy="$(arg ladder_rpy)" xyz="$(arg ladder_xyz)"/>
+	</static>
+
+	<static name="$(arg ladder_name)/step3" type="model">
+		<physical>
+			<mesh filename="$(find sensorless_force_control)/data/pilot_structure/ladder_step_phy.obj" scale="1.0" convex="true"/>
+			<origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/>
+		</physical>
+		<material name="Steel"/>
+		<look name="wfa_yellow"/>
+		<world_transform rpy="$(arg ladder_rpy)" xyz="$(arg ladder_xyz)"/>
+	</static>
+
+	<static name="$(arg ladder_name)/step4" type="model">
+		<physical>
+			<mesh filename="$(find sensorless_force_control)/data/pilot_structure/ladder_step_phy.obj" scale="1.0" convex="true"/>
+			<origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.3"/>
+		</physical>
+		<material name="Steel"/>
+		<look name="wfa_yellow"/>
+		<world_transform rpy="$(arg ladder_rpy)" xyz="$(arg ladder_xyz)"/>
+	</static>
+
+	<static name="$(arg ladder_name)/step5" type="model">
+		<physical>
+			<mesh filename="$(find sensorless_force_control)/data/pilot_structure/ladder_step_phy.obj" scale="1.0" convex="true"/>
+			<origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.6"/>
+		</physical>
+		<material name="Steel"/>
+		<look name="wfa_yellow"/>
+		<world_transform rpy="$(arg ladder_rpy)" xyz="$(arg ladder_xyz)"/>
+	</static>
+</scenario>

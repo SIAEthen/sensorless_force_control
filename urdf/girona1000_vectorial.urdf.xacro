@@ -1,0 +1,148 @@
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+    <xacro:macro name="girona1000" params="ns">
+
+        <xacro:property name="origin_to_base_link_z" value="0.214" />
+
+        <link name="${ns}/origin">
+            <visual>
+                <geometry>
+                    <mesh
+                        filename="package://sensorless_force_control/data/girona1000/girona1000.dae" />
+                </geometry>
+            </visual>
+        </link>
+
+        <link name="${ns}/base_link" />
+        <link name="${ns}/dvl" />
+        <link name="${ns}/dvl_altitude" />
+        <link name="${ns}/gps" />
+        <link name="${ns}/ins" />
+        <link name="${ns}/pressure" />
+
+        <link name="${ns}/thruster_1">
+            <visual>
+                <geometry>
+                    <mesh
+                        filename="package://sensorless_force_control/data/girona1000/thruster.dae" />
+                </geometry>
+                <origin xyz="0.0 0.0 0.0" rpy="0.0 ${pi} ${pi}" />
+            </visual>
+        </link>
+        <!-- Upper thrusters -->
+        <link name="${ns}/thruster_2">
+            <visual>
+                <geometry>
+                    <mesh
+                        filename="package://sensorless_force_control/data/girona1000/thruster.dae" />
+                </geometry>
+                <origin xyz="0.0 0.0 0.0" rpy="0.0 ${pi} ${pi}" />
+            </visual>
+        </link>
+        <link name="${ns}/thruster_3">
+            <visual>
+                <geometry>
+                    <mesh
+                        filename="package://sensorless_force_control/data/girona1000/thruster.dae" />
+                </geometry>
+                <origin xyz="0.0 0.0 0.0" rpy="0.0 ${pi} ${pi}" />
+            </visual>
+        </link>
+        <link name="${ns}/thruster_4">
+            <visual>
+                <geometry>
+                    <mesh
+                        filename="package://sensorless_force_control/data/girona1000/thruster.dae" />
+                </geometry>
+                <origin xyz="0.0 0.0 0.0" rpy="0.0 ${pi} ${pi}" />
+            </visual>
+        </link>
+        <link name="${ns}/thruster_5">
+            <visual>
+                <geometry>
+                    <mesh
+                        filename="package://sensorless_force_control/data/girona1000/thruster.dae" />
+                </geometry>
+            </visual>
+        </link>
+
+        <link name="${ns}/thruster_6">
+            <visual>
+                <geometry>
+                    <mesh
+                        filename="package://sensorless_force_control/data/girona1000/thruster.dae" />
+                </geometry>
+            </visual>
+        </link>
+
+        <!-- Joints -->
+
+        <joint name="${ns}/base_link_to_origin" type="fixed">
+            <origin rpy="0 0 0" xyz="0.0 0.0 ${- origin_to_base_link_z}" />
+            <parent link="${ns}/base_link" />
+            <child link="${ns}/origin" />
+        </joint>
+
+        <joint name="${ns}/origin_to_thruster_1" type="fixed">
+            <origin rpy="0.0 0.0 ${-pi/4}" xyz="-0.5792 -0.2096 0.16" />
+            <parent link="${ns}/origin" />
+            <child link="${ns}/thruster_1" />
+        </joint>
+
+        <joint name="${ns}/origin_to_thruster_2" type="fixed">
+            <origin rpy="${pi} 0.0 ${pi/4}" xyz="-0.5792 0.2096 0.16" />
+            <parent link="${ns}/origin" />
+            <child link="${ns}/thruster_2" />
+        </joint>
+
+        <joint name="${ns}/origin_to_thruster_3" type="fixed">
+            <origin rpy="0.0 ${pi} ${pi/4}" xyz="0.5792 -0.2096 0.16" />
+            <parent link="${ns}/origin" />
+            <child link="${ns}/thruster_3" />
+        </joint>
+
+        <joint name="${ns}/origin_to_thruster_4" type="fixed">
+            <origin rpy="${pi} ${pi} ${-pi/4}" xyz="0.5792 0.2096 0.16" />
+            <parent link="${ns}/origin" />
+            <child link="${ns}/thruster_4" />
+        </joint>
+
+        <joint name="${ns}/origin_to_thruster_5" type="fixed">
+            <origin rpy="0.0 ${-pi/2} ${-pi/2}" xyz="0.5586 0.0 -0.121" />
+            <parent link="${ns}/origin" />
+            <child link="${ns}/thruster_5" />
+        </joint>
+
+        <joint name="${ns}/origin_to_thruster_6" type="fixed">
+            <origin rpy="0.0 ${-pi/2} ${pi/2}" xyz="-0.5586 0.0 -0.121" />
+            <parent link="${ns}/origin" />
+            <child link="${ns}/thruster_6" />
+        </joint>
+
+        <joint name="${ns}/origin_to_gps" type="fixed">
+            <origin rpy="0 0 0" xyz="-0.455 -0.35 -0.54" />
+            <parent link="${ns}/origin" />
+            <child link="${ns}/gps" />
+        </joint>
+        <joint name="${ns}/origin_to_dvl" type="fixed">
+            <origin rpy="0.0 0.0 ${pi} " xyz="-0.655 0.0 0.65" />
+            <parent link="${ns}/origin" />
+            <child link="${ns}/dvl" />
+        </joint>
+        <joint name="${ns}/origin_to_dvl_altitude" type="fixed">
+            <origin rpy="0 ${-pi/2} 0" xyz="0.0 0.0 0.0" />
+            <parent link="${ns}/dvl" />
+            <child link="${ns}/dvl_altitude" />
+        </joint>
+        <joint name="${ns}/origin_to_ins" type="fixed">
+            <origin rpy="0.0 ${pi} 0.0" xyz="0.248650 0.377250 -0.07" />
+            <parent link="${ns}/origin" />
+            <child link="${ns}/ins" />
+        </joint>
+        <joint name="${ns}/origin_to_pressure" type="fixed">
+            <origin rpy="0 0 0" xyz="-0.4561 0.35 -0.2073" />
+            <parent link="${ns}/origin" />
+            <child link="${ns}/pressure" />
+        </joint>
+
+    </xacro:macro>
+</robot>

@@ -1,0 +1,77 @@
+<?xml version="1.0"?>
+<scenario>
+	<looks>
+		<look name="wfa_yellow" rgb="1.0 0.9 0.0" roughness="0.3"/>
+		<look name="wfa_metalic" rgb="0.5 0.5 0.5" roughness="0.3" metalness="1.0"/>
+		<look name="marker91" gray="1.0" roughness="1.0" texture="$(find sensorless_force_control)/data/markers/artoolkit_91.png"/>
+		<look name="marker122" gray="1.0" roughness="1.0" texture="$(find sensorless_force_control)/data/markers/artoolkit_122.png"/>
+		<look name="marker176" gray="1.0" roughness="1.0" texture="$(find sensorless_force_control)/data/markers/artoolkit_176.png"/>
+	</looks>
+
+	<!-- <static name="PilotCylinder" type="model">
+		<physical>
+			<mesh filename="$(find sensorless_force_control)/data/pilot_structure/pillar_phy.obj" scale="1.0" convex="true"/>
+			<origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/>
+		</physical>
+		<visual>
+			<mesh filename="$(find sensorless_force_control)/data/pilot_structure/pillar_phy.obj" scale="1.0"/>
+			<origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0"/>
+		</visual>
+		<world_transform rpy="0.0 0.0 -1.57" xyz="0.0 4.0 2.0"/>
+		<material name="Steel"/>
+		<look name="wfa_yellow"/>
+	</static> -->
+
+	<static name="PilotCylinder" type="cylinder">
+		<dimensions radius="4.5" height="1.5"/>
+		<world_transform rpy="0.0 0.0 -1.57" xyz="0.0 8.22 2.0"/>
+		<material name="Steel"/>
+		<look name="wfa_yellow"/>
+	</static>
+
+	<!-- <include file="$(find sensorless_force_control)/scenarios/pilot_anode_s.scn">
+		<arg name="anode_name" value="Anode1"/>
+		<arg name="anode_rpy" value="0.0 0.0 -1.64"/>
+		<arg name="anode_xyz" value="-0.3888 3.6333 1.9992"/>
+	</include> -->
+
+	<include file="$(find sensorless_force_control)/scenarios/pilot_anode_l.scn">
+		<arg name="anode_name" value="Anode2"/>
+		<arg name="anode_rpy" value="0.0 0.0 -1.36"/>
+		<arg name="anode_xyz" value="1.0139 3.7296 2.0099"/>
+	</include>
+
+	<!-- <include file="$(find sensorless_force_control)/scenarios/pilot_anode_l.scn">
+		<arg name="anode_name" value="Anode3"/>
+		<arg name="anode_rpy" value="1.57 0.0 -1.52"/>
+		<arg name="anode_xyz" value="0.2463 3.6526 2.6185"/>
+	</include> -->
+
+	<include file="$(find sensorless_force_control)/scenarios/pilot_ladder.scn">
+		<arg name="ladder_name" value="Ladder"/>
+		<arg name="ladder_rpy" value="0.0 0.0 -1.76"/>
+		<arg name="ladder_xyz" value="-0.97 3.688 2.0"/>
+	</include>
+
+	<static name="MarkerLeft" type="box">
+		<dimensions xyz="0.1875 0.1875 0.01"/>
+		<world_transform rpy="-${pi/2.0} 0.0 0.0" xyz="0.6 3.7 2.5"/>
+		<material name="Steel"/>
+		<look name="marker91" uv_mode="3"/>
+	</static>
+
+	<static name="MarkerTop" type="box">
+		<dimensions xyz="0.1875 0.1875 0.01"/>
+		<world_transform rpy="-${pi/2.0} 0.0 0.0" xyz="0.0 3.7 1.4"/>
+		<material name="Steel"/>
+		<look name="marker122" uv_mode="3"/>
+	</static>
+
+	<static name="MarkerRight" type="box">
+		<dimensions xyz="0.1875 0.1875 0.01"/>
+		<world_transform rpy="-${pi/2.0} 0.0 0.0" xyz="-0.6 3.7 2.5"/>
+		<material name="Steel"/>
+		<look name="marker176" uv_mode="3"/>
+	</static>
+
+</scenario>

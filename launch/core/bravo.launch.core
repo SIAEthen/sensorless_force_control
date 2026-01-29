@@ -1,0 +1,21 @@
+<launch>
+    <arg name="robot_name" default="girona1000"/>
+    <group ns="$(arg robot_name)">
+        <group ns="bravo">
+            <!-- Load ros-control parameters -->
+            <rosparam command="load" file="$(find sensorless_force_control)/config/bravo/ros_control.yaml" />
+
+            <!-- Load the controllers -->
+            <node name="controller_spawner" pkg="controller_manager" type="spawner" output="screen" 
+                args="joint_state_controller joint_velocity_controller"/>
+
+            <node name="controller_spawner2" pkg="controller_manager" type="spawner" output="screen" 
+                args="--stopped joint_trajectory_controller"/>
+                                    
+            <!-- Launch the predefined motions node-->
+            <!-- <node name="predefined_positions" pkg="sensorless_force_control" type="predefined_positions" output="screen">
+                <rosparam command="load" file="$(find sensorless_force_control)/config/bravo/predefined_motions.yaml" />
+            </node> -->
+        </group>
+    </group>
+</launch>

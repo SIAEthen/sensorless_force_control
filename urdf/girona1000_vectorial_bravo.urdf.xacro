@@ -1,0 +1,100 @@
+<?xml version="1.0"?>
+<robot name="girona1000" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <xacro:arg name="robot_namespace" default="girona1000" />
+    <xacro:arg name="reach_bravo7_namespace" default="$(arg robot_namespace)/bravo" />
+
+    <!-- Include Girona1000 -->
+    <xacro:include filename="$(find sensorless_force_control)/urdf/girona1000_vectorial.urdf.xacro" />
+    <!-- Include manipulators -->
+    <xacro:include
+        filename="$(find blueprintlab_reachbravo7_manipulator_description)/urdf/bravo7_macro.urdf.xacro" />
+
+    <xacro:girona1000 ns="$(arg robot_namespace)" />
+    <!-- Add manipulators-->
+    <xacro:reach_bravo7 prefix="$(arg reach_bravo7_namespace)" link6_lowlimit="-3.14"
+        link6_uplimit="3.14" />
+
+    <!-- Attach manipulators to base -->
+
+    <joint name="girona1000_to_bravo" type="fixed">
+        <parent link="$(arg robot_namespace)/origin" />
+        <child link="$(arg reach_bravo7_namespace)/base_link" />
+        <origin rpy="${pi} 0.0 -0.175" xyz="0.7322 -0.1382 0.485" />
+    </joint>
+
+    <!-- Include End Effectors -->
+    <xacro:include
+        filename="$(find blueprintlab_reachbravo7_manipulator_description)/urdf/end_effectors/payload_interface_macro.urdf.xacro" />
+
+    <!-- Add Bravo payload interface -->
+    <xacro:reach_bravo7_payload_interface prefix="$(arg reach_bravo7_namespace)" />
+
+    <!-- Add Bravo End effector-->
+    <link name="$(arg reach_bravo7_namespace)/ft_link">
+        <collision>
+            <geometry>
+                <cylinder radius="0.035" length="0.134" />
+            </geometry>
+            <origin rpy="0 0 0" xyz="0 0 0" />
+        </collision>
+        <visual>
+            <geometry>
+                <cylinder radius="0.035" length="0.134" />
+            </geometry>
+            <origin rpy="0 0 0" xyz="0 0 ${+0.134/2 - 0.091}" />
+        </visual>
+    </link>
+
+    <link name="$(arg reach_bravo7_namespace)/cp_probe_link">
+        <collision>
+            <geometry>
+                <mesh
+                    filename="package://sensorless_force_control/data/reach_bravo7/cp_probe_phy.obj" />
+            </geometry>
+            <origin rpy="0 0 0" xyz="0 0 0" />
+        </collision>
+        <visual>
+            <geometry>
+                <mesh filename="package://sensorless_force_control/data/reach_bravo7/cp_probe.obj" />
+            </geometry>
+            <origin rpy="0 0 0" xyz="0 0 0" />
+        </visual>
+    </link>
+
+    <link name="$(arg reach_bravo7_namespace)/cp_probe_tip_link" />
+
+    <!-- <link name="$(arg reach_bravo7_namespace)/brush_center_link"/> -->
+
+    <joint name="$(arg reach_bravo7_namespace)/ft_joint" type="fixed">
+        <parent link="$(arg reach_bravo7_namespace)/payload_interface_link" />
+        <child link="$(arg reach_bravo7_namespace)/ft_link" />
+        <origin rpy="0.0 0.0 ${-pi/2}" xyz="0.0 0.0 0.091" />
+    </joint>
+
+    <joint name="$(arg reach_bravo7_namespace)/cp_probe_joint" type="fixed">
+        <parent link="$(arg reach_bravo7_namespace)/ft_link" />
+        <child link="$(arg reach_bravo7_namespace)/cp_probe_link" />
+        <origin rpy="0.0 ${-pi/2} ${pi/2 + pi/12}" xyz="0.0 0.0 0.041" />
+    </joint>
+
+    <joint name="$(arg reach_bravo7_namespace)/cp_probe_tip_joint" type="fixed">
+        <parent link="$(arg reach_bravo7_namespace)/cp_probe_link" />
+        <child link="$(arg reach_bravo7_namespace)/cp_probe_tip_link" />
+        <origin rpy="0.0 ${-pi/2} ${pi}" xyz="0.1126 0.0 -0.0865" />
+    </joint>
+
+    <!-- <joint name="$(arg reach_bravo7_namespace)/brush_center_joint" type="fixed">
+    <parent link="$(arg reach_bravo7_namespace)/cp_probe_link" />
+    <child link="$(arg reach_bravo7_namespace)/brush_center_link" />
+    <origin rpy="0.0 ${-pi/2} ${pi}" xyz="0.26 0.0 -0.105" />
+  </joint> -->
+
+    <link name="$(arg robot_namespace)/flir_spinnaker_camera" />
+    <joint name="$(arg robot_namespace)/flir_spinnaker_camera_joint" type="fixed">
+        <parent link="$(arg robot_namespace)/base_link" />
+        <child link="$(arg robot_namespace)/flir_spinnaker_camera" />
+        <origin rpy="1.33 0.0 1.64" xyz=" 0.32 -0.12 -0.17" />
+    </joint>
+
+</robot>
