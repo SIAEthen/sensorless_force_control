@@ -10,8 +10,8 @@
     <arg name="scenario_description"
         default="$(find sensorless_force_control)/scenarios/pilot_pool.scn" />
     <arg name="simulation_rate" default="300.0" />
-    <arg name="graphics_resolution" default="1200 900" />
-    <arg name="graphics_quality" default="high" />
+    <arg name="graphics_resolution" default="800 600" />
+    <arg name="graphics_quality" default="low" />
 
     <!-- Static transform -->
     <node name="world2ned" pkg="tf" type="static_transform_publisher"
