@@ -5,7 +5,10 @@
 
 #include "hardware/manipulator_base.h"
 #include "hardware/vehicle_base.h"
+#include "utilts/matrix.h"
 #include "utilts/rotation.h"
+
+namespace sfc {
 
 template <std::size_t Dof>
 class UvmsSingleArm {
@@ -13,12 +16,16 @@ public:
   using Manipulator = ManipulatorBase<Dof>;
   using UvmsJacobian = Matrix<6, 6 + Dof>;
 
+  // Frames: 
+  // world is the inertial frame (ned)
+  // vehicle frame is body FRD (b), 
+  // manipulator frames are 0..Dof
   explicit UvmsSingleArm(std::string vehicle_name,
                          std::string manipulator_name,
-                         const HomogeneousMatrix& t_mb_to_v = HomogeneousMatrix::identity())
+                         const HomogeneousMatrix& t_0_b = HomogeneousMatrix::identity())
       : vehicle_(std::move(vehicle_name)),
         manipulator_(std::move(manipulator_name)),
-        t_manipulator_base_to_vehicle_(t_mb_to_v) {}
+        t_0_b_(t_0_b) {}
 
   VehicleBase& vehicle() { return vehicle_; }
   const VehicleBase& vehicle() const { return vehicle_; }
@@ -26,37 +33,90 @@ public:
   Manipulator& manipulator() { return manipulator_; }
   const Manipulator& manipulator() const { return manipulator_; }
 
-  void setManipulatorBaseToVehicleTransform(const HomogeneousMatrix& t_mb_to_v) {
-    t_manipulator_base_to_vehicle_ = t_mb_to_v;
+  void setVehicleState(const VehicleBase::State& state) {
+    vehicle_.setState(state);
+  }
+
+  VehicleBase::State vehicleState() const { return vehicle_.state(); }
+
+  void setManipulatorState(const typename Manipulator::State& state) {
+    manipulator_.setState(state);
+  }
+
+  typename Manipulator::State manipulatorState() const {
+    return manipulator_.state();
+  }
+
+  void setManipulatorBaseToVehicleTransform(const HomogeneousMatrix& t_0_b) {
+    t_0_b_ = t_0_b;
   }
 
   const HomogeneousMatrix& manipulatorBaseToVehicleTransform() const {
-    return t_manipulator_base_to_vehicle_;
+    return t_0_b_;
   }
 
-  HomogeneousMatrix directKinematics(
-      const std::array<sfc::Real, Dof>& q) const {
-    return vehicleToInertial() * t_manipulator_base_to_vehicle_ *
-           manipulator_.forwardKinematics(q);
+  // Returns T_ee_ned. For UVMS, world frame is NED.
+  HomogeneousMatrix forwardKinematics() const {
+    return vehicle_.forwardKinematics() * t_0_b_ *
+           manipulator_.forwardKinematics();
   }
 
-  UvmsJacobian jacobian(const std::array<sfc::Real, Dof>& q) const {
-    
+  UvmsJacobian jacobian() const {
+    const RotationMatrix r_b_ned =
+        vehicle_.getRotationMatrixBaseToInertial();
+    const Vector3 p_b_ned{vehicle_.position()[0],
+                          vehicle_.position()[1],
+                          vehicle_.position()[2]};
+
+    const Vector3 p_b0_b =
+        t_0_b_.translation();
+    const RotationMatrix r_0_b =
+        t_0_b_.rotation();
+
+    const RotationMatrix r_0_ned = r_b_ned * r_0_b;
+
+    const HomogeneousMatrix t_ee_ned = forwardKinematics();
+    const Vector3 p_ee_ned =
+        t_ee_ned.translation();
+    const Vector3 p_b0_ned = r_b_ned.m * p_b0_b;
+    const Vector3 p_0ee_ned =
+        p_ee_ned - p_b_ned - p_b0_ned;
+
+    const typename Manipulator::Jacobian j_man = manipulator_.jacobian();
+    Matrix<3, Dof> j_man_pos{};
+    Matrix<3, Dof> j_man_ori{};
+    for (std::size_t col = 0; col < Dof; ++col) {
+      for (std::size_t row = 0; row < 3; ++row) {
+        j_man_pos(row, col) = j_man(row, col);
+        j_man_ori(row, col) = j_man(row + 3, col);
+      }
+    }
+
+    const Matrix3 r_b_ned_m = r_b_ned.m;
+    const Matrix3 r_0_ned_m = r_0_ned.m;
+    const Matrix3 S_p_b0_ned = skew(p_b0_ned);
+    const Matrix3 S_p_0ee_ned = skew(p_0ee_ned);
+    const Matrix3 jr_cross =
+        (S_p_b0_ned + S_p_0ee_ned) * r_b_ned_m;
+    const Matrix3 jr_linear = Matrix3{} - jr_cross;
+
+    const Matrix<3, Dof> j_pos = r_0_ned_m * j_man_pos;
+    const Matrix<3, Dof> j_ori = r_0_ned_m * j_man_ori;
+
+    const auto j_linear =
+        hstack(hstack(r_b_ned_m, jr_linear), j_pos);
+    const auto j_angular =
+        hstack(hstack(zeros<3, 3>(), r_b_ned_m), j_ori);
+    return vstack(j_linear, j_angular);
   }
 
 private:
   VehicleBase vehicle_;
   Manipulator manipulator_;
-  HomogeneousMatrix t_manipulator_base_to_vehicle_;
-
-  HomogeneousMatrix vehicleToInertial() const {
-    const RotationMatrix r = vehicle_.getRotationMatrixBaseToInertial();
-    const Vector3 p{vehicle_.position()[0],
-                    vehicle_.position()[1],
-                    vehicle_.position()[2]};
-    return HomogeneousMatrix::fromRotationTranslation(r, p);
-  }
+  HomogeneousMatrix t_0_b_;
 
 };
+
+}  // namespace sfc
 
 #endif  // SFC_UVMS_SINGLE_ARM_H_

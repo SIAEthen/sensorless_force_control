@@ -9,7 +9,7 @@
     <arg name="simulation_data" default="$(find sensorless_force_control)/data" />
     <arg name="scenario_description"
         default="$(find sensorless_force_control)/scenarios/pilot_pool.scn" />
-    <arg name="simulation_rate" default="300.0" />
+    <arg name="simulation_rate" default="500.0" />
     <arg name="graphics_resolution" default="800 600" />
     <arg name="graphics_quality" default="low" />
 

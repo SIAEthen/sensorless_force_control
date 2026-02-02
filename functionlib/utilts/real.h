@@ -11,8 +11,12 @@ namespace sfc {
 inline Real zero() { return static_cast<Real>(0.0); }
 inline Real one() { return static_cast<Real>(1.0); }
 
+constexpr Real kPi = static_cast<Real>(3.14159265358979323846264338327950288L);
+constexpr Real kPi2 = kPi / static_cast<Real>(2.0);
+constexpr Real kPi4 = kPi / static_cast<Real>(4.0);
+
 inline Real pi() {
-  return static_cast<Real>(3.14159265358979323846264338327950288L);
+  return kPi;
 }
 
 inline Real deg2rad(Real degrees) { return degrees * (pi() / static_cast<Real>(180.0)); }

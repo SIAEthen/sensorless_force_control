@@ -8,6 +8,8 @@
 
 #include "config.h"
 
+namespace sfc {
+
 template <std::size_t Size>
 struct Vector {
   std::array<sfc::Real, Size> data{};
@@ -68,5 +70,7 @@ inline Vector3 cross(const Vector3& a, const Vector3& b) {
   r(2) = a(0) * b(1) - a(1) * b(0);
   return r;
 }
+
+}  // namespace sfc
 
 #endif  // SFC_UTILTS_VECTOR_H_

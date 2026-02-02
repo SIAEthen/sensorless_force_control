@@ -4,10 +4,13 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <ostream>
 #include <stdexcept>
 
 #include "config.h"
 #include "utilts/vector.h"
+
+namespace sfc {
 
 template <std::size_t Rows, std::size_t Cols>
 struct Matrix {
@@ -70,6 +73,21 @@ struct Matrix {
     return result;
   }
 
+  Vector<Rows> operator*(const Vector<Cols>& v) const {
+    if (!isFinite() || !v.isFinite()) {
+      throw std::runtime_error("Matrix contains non-finite value");
+    }
+    Vector<Rows> out{};
+    for (std::size_t row = 0; row < Rows; ++row) {
+      sfc::Real sum = 0.0;
+      for (std::size_t col = 0; col < Cols; ++col) {
+        sum += (*this)(row, col) * v(col);
+      }
+      out(row) = sum;
+    }
+    return out;
+  }
+
   Matrix<Cols, Rows> transpose() const {
     if (!isFinite()) {
       throw std::runtime_error("Matrix contains non-finite value");
@@ -87,12 +105,52 @@ struct Matrix {
 using Matrix3 = Matrix<3, 3>;
 using Matrix4 = Matrix<4, 4>;
 
-inline Matrix3 identity3() {
-  Matrix3 i{};
-  i(0, 0) = 1.0;
-  i(1, 1) = 1.0;
-  i(2, 2) = 1.0;
-  return i;
+template <std::size_t RowsTop, std::size_t RowsBottom, std::size_t Cols>
+inline Matrix<RowsTop + RowsBottom, Cols> vstack(
+    const Matrix<RowsTop, Cols>& top,
+    const Matrix<RowsBottom, Cols>& bottom) {
+  Matrix<RowsTop + RowsBottom, Cols> out{};
+  for (std::size_t row = 0; row < RowsTop; ++row) {
+    for (std::size_t col = 0; col < Cols; ++col) {
+      out(row, col) = top(row, col);
+    }
+  }
+  for (std::size_t row = 0; row < RowsBottom; ++row) {
+    for (std::size_t col = 0; col < Cols; ++col) {
+      out(row + RowsTop, col) = bottom(row, col);
+    }
+  }
+  return out;
+}
+
+template <std::size_t Rows, std::size_t ColsLeft, std::size_t ColsRight>
+inline Matrix<Rows, ColsLeft + ColsRight> hstack(
+    const Matrix<Rows, ColsLeft>& left,
+    const Matrix<Rows, ColsRight>& right) {
+  Matrix<Rows, ColsLeft + ColsRight> out{};
+  for (std::size_t row = 0; row < Rows; ++row) {
+    for (std::size_t col = 0; col < ColsLeft; ++col) {
+      out(row, col) = left(row, col);
+    }
+    for (std::size_t col = 0; col < ColsRight; ++col) {
+      out(row, col + ColsLeft) = right(row, col);
+    }
+  }
+  return out;
+}
+
+template <std::size_t Rows, std::size_t Cols>
+inline Matrix<Rows, Cols> zeros() {
+  return Matrix<Rows, Cols>{};
+}
+
+template <std::size_t N>
+inline Matrix<N, N> identity() {
+  Matrix<N, N> m{};
+  for (std::size_t i = 0; i < N; ++i) {
+    m(i, i) = static_cast<sfc::Real>(1.0);
+  }
+  return m;
 }
 
 inline Matrix3 skew(const Vector3& p) {
@@ -119,5 +177,23 @@ inline Matrix<6, 6> blockDiag(const Matrix3& r1,const Matrix3& r2) {
   }
   return m;
 }
+
+template <std::size_t Rows, std::size_t Cols>
+inline void printMatrix(const Matrix<Rows, Cols>& m,
+                        std::ostream& os,
+                        const char* name) {
+  os << name << " (" << Rows << "x" << Cols << ")\n";
+  for (std::size_t row = 0; row < Rows; ++row) {
+    for (std::size_t col = 0; col < Cols; ++col) {
+      os << m(row, col);
+      if (col + 1 < Cols) {
+        os << " ";
+      }
+    }
+    os << "\n";
+  }
+}
+
+}  // namespace sfc
 
 #endif  // SFC_UTILTS_MATRIX_H_

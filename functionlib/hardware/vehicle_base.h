@@ -6,7 +6,10 @@
 #include <string>
 
 #include "config.h"
+#include "utilts/rotation.h"
 #include "utilts/types.h"
+
+namespace sfc {
 
 class VehicleBase {
 public:
@@ -60,10 +63,21 @@ public:
     return getRotationMatrixBaseToInertial().transpose();
   }
 
+  // Returns T_b_ned. For the vehicle, world frame is NED.
+  HomogeneousMatrix forwardKinematics() const {
+    const RotationMatrix r = getRotationMatrixBaseToInertial();
+    const Vector3 p{state_.position[0],
+                    state_.position[1],
+                    state_.position[2]};
+    return HomogeneousMatrix::fromRotationTranslation(r, p);
+  }
+
 protected:
   std::string name_;
   std::size_t dof_;
   State state_;
 };
+
+}  // namespace sfc
 
 #endif  // SFC_VEHICLE_BASE_H_
