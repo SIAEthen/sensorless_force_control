@@ -49,6 +49,19 @@
 				<look name="girona1000_hull_bottom" />
 				<compound_transform rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.552" />
 			</external_part>
+			
+			
+			<external_part name="Box" type="box" physics="submerged" buoyant="true">
+				<dimensions xyz="0.2 0.1 0.1"/>
+				<origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
+				<material name="Neutral"/>
+				<look name="Yellow"/>
+				<compound_transform rpy="0.0 0.0 0.0" xyz="0.3 0 -0.1475" />
+			</external_part>
+
+
+
+
 
 			<external_part name="HullPort" type="model" physics="submerged" buoyant="false">
 				<physical>
@@ -66,6 +79,9 @@
 				<look name="girona1000_hull_port" />
 				<compound_transform rpy="0.0 0.0 0.0" xyz="0.0 -0.35 -0.1475" />
 			</external_part>
+
+			
+
 
 			<external_part name="HullStarboard" type="model" physics="submerged" buoyant="false">
 				<physical>
@@ -342,8 +358,10 @@
 					scale="1.0" />
 				<origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0" />
 			</visual>
-			<material name="Neutral" />
+			<material name="Aluminium" />
 			<look name="rb7_black" />
+			<mass value="1.25"/>
+			<!-- <cg xyz="0.0 0.0 0.05" rpy="0.0 0.0 0.0"/> -->
 		</link>
 
 		<link name="RB7Link1" type="model" physics="submerged">
@@ -359,8 +377,11 @@
 					scale="1.0" />
 				<origin rpy="${pi} 0.0 0.0" xyz="0.0 0.0 0.0" />
 			</visual>
-			<material name="Neutral" />
+			<material name="Aluminium" />
 			<look name="rb7_black" />
+			
+			<mass value="1.55"/>
+			<!-- <cg xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/> -->
 		</link>
 
 		<link name="RB7Link2" type="model" physics="submerged">
@@ -376,8 +397,9 @@
 					scale="1.0" />
 				<origin rpy="${pi/2} 0.0 0.0" xyz="0.0 0.0 0.0" />
 			</visual>
-			<material name="Neutral" />
+			<material name="Aluminium" />
 			<look name="rb7_black" />
+			<mass value="1.98"/>
 		</link>
 
 		<link name="RB7Link3" type="model" physics="submerged">
@@ -393,8 +415,11 @@
 					scale="1.0" />
 				<origin rpy="${pi/2} 0 ${-pi/2}" xyz="0.0 0.0 0.0" />
 			</visual>
-			<material name="Neutral" />
+			<material name="Aluminium" />
+			
 			<look name="rb7_black" />
+			<mass value="1.14"/>
+			<!-- <cg xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/> -->
 		</link>
 
 		<link name="RB7Link4" type="model" physics="submerged">
@@ -410,8 +435,10 @@
 					scale="1.0" />
 				<origin rpy="0 ${-pi/2} 0" xyz="0.0 0.0 0.0" />
 			</visual>
-			<material name="Neutral" />
+			<material name="Aluminium" />
 			<look name="rb7_black" />
+			<mass value="1.14"/>
+			<cg xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
 		</link>
 
 		<link name="RB7Link5" type="model" physics="submerged">
@@ -427,8 +454,10 @@
 					scale="1.0" />
 				<origin rpy="${pi/2} 0 ${-pi/2}" xyz="0.0 0.0 0.0" />
 			</visual>
-			<material name="Neutral" />
+			<material name="Aluminium" />
 			<look name="rb7_black" />
+			<mass value="1.03"/>
+			<cg xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
 		</link>
 
 		<link name="RB7Link6" type="model" physics="submerged">
@@ -444,8 +473,10 @@
 					scale="1.0" />
 				<origin rpy="0 ${-pi/2} 0" xyz="0.0 0.0 0.0" />
 			</visual>
-			<material name="Neutral" />
+			<material name="Aluminium" />
 			<look name="rb7_black" />
+			<mass value="1.51"/>
+			<cg xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
 		</link>
 
 		<link name="RB7FTA" type="model" physics="submerged">
@@ -457,7 +488,7 @@
 				<mesh filename="reach_bravo7/fta.obj" scale="1.0" />
 				<origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0" />
 			</visual>
-			<material name="Neutral" />
+			<material name="Aluminium" />
 			<look name="girona1000_anodized_light" />
 		</link>
 
@@ -519,7 +550,7 @@
 					<mesh filename="reach_bravo7/ftb.obj" scale="1.0" />
 					<origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0" />
 				</visual>
-				<material name="Neutral" />
+				<material name="Aluminium" />
 				<look name="girona1000_anodized_light" />
 				<compound_transform rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0" />
 			</external_part>
@@ -533,7 +564,7 @@
 					<mesh filename="reach_bravo7/cp_probe.obj" scale="1.0" />
 					<origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0" />
 				</visual>
-				<material name="Neutral" />
+				<material name="Aluminium" />
 				<look name="cp_probe" />
 				<compound_transform rpy="0.0 0.0 0.0" xyz="0.041 0.0 0.0" />
 			</external_part>
@@ -547,7 +578,7 @@
 					<mesh filename="reach_bravo7/cp_probe_foam.obj" scale="1.0" />
 					<origin rpy="0.0 0.0 0.0" xyz="0.0 0.0 0.0" />
 				</visual>
-				<material name="Neutral" />
+				<material name="Aluminium" />
 				<look name="cp_probe_foam" />
 				<compound_transform rpy="0.0 0.0 0.0" xyz="0.041 0.0 0.0" />
 			</external_part>
