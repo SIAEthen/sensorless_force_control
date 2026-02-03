@@ -1,0 +1,7 @@
+<launch>
+  <arg name="robot_name" default="girona1000" />
+
+  <node name="joint_cmd_watchdog" pkg="sensorless_force_control" type="joint_cmd_watchdog" output="screen" ns="$(arg robot_name)">
+    <rosparam command="load" file="$(find sensorless_force_control)/config/control/joint_cmd_watchdog.yaml" />
+  </node>
+</launch>

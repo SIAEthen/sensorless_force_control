@@ -1,0 +1,9 @@
+joint_cmd_watchdog:
+  robot_name: girona1000
+  input_topic: controller/joint_velocity_cmd
+  output_topic: bravo/joint_velocity_controller/command
+  timeout_sec: 0.2
+  publish_rate_hz: 50.0
+  dof: 6
+# the input topic will be /robot_name/controller/joint_velocity_cmd
+# the output topic will be /robot_name/bravo/joint_velocity_controller/command
