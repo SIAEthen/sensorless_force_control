@@ -19,7 +19,7 @@
 
     <!-- Namespace with robot name -->
     <group ns="$(arg robot_name)">
-        <include file="$(find sensorless_force_control)/launch/core/girona1000_base.launch">
+        <include file="$(find sensorless_force_control)/launch/core/girona1000_base.launch.core">
             <arg name="robot_name" value="$(arg robot_name)" />
             <arg name="enable_keyboard" value="$(arg enable_keyboard)" />
             <arg name="enable_gui" value="$(arg enable_gui)" />
@@ -78,4 +78,9 @@
     <!-- RViz -->
     <node if="$(arg enable_rviz)" pkg="rviz" type="rviz" name="rviz"
         args="-d $(find sensorless_force_control)/rviz/intervention.rviz" />
+
+
+
+    <!-- my watch dog -->
+    <include file="$(find sensorless_force_control)/launch/joint_cmd_watchdog.launch.xh" />
 </launch>
