@@ -18,7 +18,7 @@ class GironaController {
   ~GironaController();
 
   void start();
- void stop();
+  void stop();
 
   GironaInterface& interface() { return interface_; }
   const GironaInterface& interface() const { return interface_; }
@@ -27,7 +27,7 @@ class GironaController {
   const sfc::UvmsSingleArm<GironaInterface::kArmDof>& uvms() const { return uvms_; }
 
  private:
- void interfaceThread();
+  void interfaceThread();
   void controlThread();
   void initUvms();
 

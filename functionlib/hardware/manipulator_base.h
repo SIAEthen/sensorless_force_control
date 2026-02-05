@@ -11,22 +11,22 @@
 
 namespace sfc {
 
+enum class DHConvention {
+  kStandard,
+  kModified
+};
+
+struct DHParam {
+  sfc::Real a{0.0};
+  sfc::Real alpha{0.0};
+  sfc::Real d{0.0};
+  sfc::Real theta{0.0};
+};
+
 template <std::size_t Dof>
 class ManipulatorBase {
 public:
   static constexpr std::size_t kDof = Dof;
-
-  enum class DHConvention {
-    kStandard,
-    kModified
-  };
-
-  struct DHParam {
-    sfc::Real a{0.0};
-    sfc::Real alpha{0.0};
-    sfc::Real d{0.0};
-    sfc::Real theta{0.0};
-  };
 
   struct State {
     std::array<sfc::Real, kDof> q{};

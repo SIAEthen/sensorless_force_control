@@ -7,19 +7,20 @@
 #include "hardware/vehicle_base.h"
 #include "utilts/matrix.h"
 #include "utilts/rotation.h"
+#include "utilts/vector.h"
 
 namespace sfc {
 
-template <std::size_t Dof>
+template <std::size_t kUvmsArmDof>
 class UvmsSingleArm {
 public:
-  using Manipulator = ManipulatorBase<Dof>;
-  using UvmsJacobian = Matrix<6, 6 + Dof>;
+  using Manipulator = ManipulatorBase<kUvmsArmDof>;
+  using UvmsJacobian = Matrix<6, 6 + kUvmsArmDof>;
 
   // Frames: 
   // world is the inertial frame (ned)
   // vehicle frame is body FRD (b), 
-  // manipulator frames are 0..Dof
+  // manipulator frames are 0..kUvmsArmDof
   explicit UvmsSingleArm(std::string vehicle_name,
                          std::string manipulator_name,
                          const HomogeneousMatrix& t_0_b = HomogeneousMatrix::identity())
@@ -33,32 +34,65 @@ public:
   Manipulator& manipulator() { return manipulator_; }
   const Manipulator& manipulator() const { return manipulator_; }
 
-  void setVehicleState(const VehicleBase::State& state) {
-    vehicle_.setState(state);
+  Vector3 vehiclePosition() const {
+    return Vector3{vehicle_.position()[0],
+                   vehicle_.position()[1],
+                   vehicle_.position()[2]};
   }
+
+  Vector3 vehicleRpy() const { return vehicle_.rpy(); }
+
+  Quaternion vehicleQuaternion() const { return Quaternion::fromRPY(vehicle_.rpy()); }
+
+  Vector6 vehicleVelocity() const {
+    Vector6 out{};
+    const auto& nu = vehicle_.velocity();
+    for (std::size_t i = 0; i < VehicleBase::kDof; ++i) {
+      out(i) = nu[i];
+    }
+    return out;
+  }
+
+  Vector<kUvmsArmDof> manipulatorPosition() const {
+    Vector<kUvmsArmDof> out{};
+    const auto& q = manipulator_.jointPosition();
+    for (std::size_t i = 0; i < kUvmsArmDof; ++i) {
+      out(i) = q[i];
+    }
+    return out;
+  }
+
+  Vector<kUvmsArmDof> manipulatorVelocity() const {
+    Vector<kUvmsArmDof> out{};
+    const auto& dq = manipulator_.jointVelocity();
+    for (std::size_t i = 0; i < kUvmsArmDof; ++i) {
+      out(i) = dq[i];
+    }
+    return out;
+  }
+
+  void setVehicleState(const VehicleBase::State& state) { vehicle_.setState(state); }
 
   VehicleBase::State vehicleState() const { return vehicle_.state(); }
 
-  void setManipulatorState(const typename Manipulator::State& state) {
-    manipulator_.setState(state);
-  }
+  void setManipulatorState(const typename Manipulator::State& state) { manipulator_.setState(state); }
 
-  typename Manipulator::State manipulatorState() const {
-    return manipulator_.state();
-  }
+  typename Manipulator::State manipulatorState() const { return manipulator_.state(); }
 
-  void setManipulatorBaseToVehicleTransform(const HomogeneousMatrix& t_0_b) {
-    t_0_b_ = t_0_b;
-  }
+  void setManipulatorBaseToVehicleTransform(const HomogeneousMatrix& t_0_b) { t_0_b_ = t_0_b; }
 
-  const HomogeneousMatrix& manipulatorBaseToVehicleTransform() const {
-    return t_0_b_;
-  }
+  const HomogeneousMatrix& manipulatorBaseToVehicleTransform() const { return t_0_b_; }
 
   // Returns T_ee_ned. For UVMS, world frame is NED.
   HomogeneousMatrix forwardKinematics() const {
-    return vehicle_.forwardKinematics() * t_0_b_ *
-           manipulator_.forwardKinematics();
+    return vehicle_.forwardKinematics() * t_0_b_ * manipulator_.forwardKinematics();
+  }
+
+  Vector3 endEffectorPositionNed() const { return forwardKinematics().translation(); }
+
+  Quaternion endEffectorQuaternionNed() const {
+    const RotationMatrix r = forwardKinematics().rotation();
+    return Quaternion::fromRotationMatrix(r);
   }
 
   UvmsJacobian jacobian() const {
@@ -83,9 +117,9 @@ public:
         p_ee_ned - p_b_ned - p_b0_ned;
 
     const typename Manipulator::Jacobian j_man = manipulator_.jacobian();
-    Matrix<3, Dof> j_man_pos{};
-    Matrix<3, Dof> j_man_ori{};
-    for (std::size_t col = 0; col < Dof; ++col) {
+    Matrix<3, kUvmsArmDof> j_man_pos{};
+    Matrix<3, kUvmsArmDof> j_man_ori{};
+    for (std::size_t col = 0; col < kUvmsArmDof; ++col) {
       for (std::size_t row = 0; row < 3; ++row) {
         j_man_pos(row, col) = j_man(row, col);
         j_man_ori(row, col) = j_man(row + 3, col);
@@ -100,8 +134,8 @@ public:
         (S_p_b0_ned + S_p_0ee_ned) * r_b_ned_m;
     const Matrix3 jr_linear = Matrix3{} - jr_cross;
 
-    const Matrix<3, Dof> j_pos = r_0_ned_m * j_man_pos;
-    const Matrix<3, Dof> j_ori = r_0_ned_m * j_man_ori;
+    const Matrix<3, kUvmsArmDof> j_pos = r_0_ned_m * j_man_pos;
+    const Matrix<3, kUvmsArmDof> j_ori = r_0_ned_m * j_man_ori;
 
     const auto j_linear =
         hstack(hstack(r_b_ned_m, jr_linear), j_pos);

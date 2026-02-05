@@ -15,10 +15,10 @@ namespace sfc {
 struct Quaternion;
 struct RotationMatrix;
 struct HomogeneousMatrix;
-struct RPY;
-
 Vector3 RotationMatrix2RPY(const RotationMatrix& r);
 Vector3 Quaternion2RPY(const Quaternion& q);
+Vector3 rpyFromRotationMatrix(const RotationMatrix& r);
+Vector3 rpyFromQuaternion(const Quaternion& q);
 
 struct RotationMatrix {
   Matrix3 m{};
@@ -30,7 +30,7 @@ struct RotationMatrix {
 
   static RotationMatrix identity();
   static RotationMatrix fromRPY(sfc::Real roll, sfc::Real pitch, sfc::Real yaw);
-  static RotationMatrix fromRPY(const RPY& rpy);
+  static RotationMatrix fromRPY(const Vector3& rpy);
   static RotationMatrix fromQuaternion(const Quaternion& q);
   
 
@@ -63,7 +63,7 @@ struct Quaternion {
 
   static Quaternion identity();
   static Quaternion fromRPY(sfc::Real roll, sfc::Real pitch, sfc::Real yaw);
-  static Quaternion fromRPY(const RPY& rpy);
+  static Quaternion fromRPY(const Vector3& rpy);
   static Quaternion fromRotationMatrix(const RotationMatrix& r);
 
   Quaternion operator+(const Quaternion& other) const;
@@ -75,17 +75,6 @@ struct Quaternion {
   Quaternion inverse() const;
 };
 
-struct RPY {
-  sfc::Real roll{0.0};
-  sfc::Real pitch{0.0};
-  sfc::Real yaw{0.0};
-
-  RPY() = default;
-  RPY(sfc::Real r, sfc::Real p, sfc::Real y) : roll(r), pitch(p), yaw(y) {}
-
-  static RPY fromRotationMatrix(const RotationMatrix& r);
-  static RPY fromQuaternion(const Quaternion& q);
-};
 
 inline sfc::Real RotationMatrix::operator()(std::size_t row, std::size_t col) const {
   return m(row, col);
@@ -126,8 +115,8 @@ inline RotationMatrix RotationMatrix::fromRPY(sfc::Real roll, sfc::Real pitch, s
   return r;
 }
 
-inline RotationMatrix RotationMatrix::fromRPY(const RPY& rpy) {
-  return fromRPY(rpy.roll, rpy.pitch, rpy.yaw);
+inline RotationMatrix RotationMatrix::fromRPY(const Vector3& rpy) {
+  return fromRPY(rpy(0), rpy(1), rpy(2));
 }
 
 inline RotationMatrix RotationMatrix::fromQuaternion(const Quaternion& q) {
@@ -271,9 +260,10 @@ inline Quaternion Quaternion::fromRPY(sfc::Real roll, sfc::Real pitch, sfc::Real
   return q.normalized();
 }
 
-inline Quaternion Quaternion::fromRPY(const RPY& rpy) {
-  return fromRPY(rpy.roll, rpy.pitch, rpy.yaw);
+inline Quaternion Quaternion::fromRPY(const Vector3& rpy) {
+  return fromRPY(rpy(0), rpy(1), rpy(2));
 }
+
 
 inline Quaternion Quaternion::fromRotationMatrix(const RotationMatrix& r) {
   if (!r.isFinite()) {
@@ -402,14 +392,12 @@ inline Vector3 Quaternion2RPY(const Quaternion& q) {
   return RotationMatrix2RPY(r);
 }
 
-inline RPY RPY::fromRotationMatrix(const RotationMatrix& r) {
-  const Vector3 rpy = RotationMatrix2RPY(r);
-  return RPY{rpy(0), rpy(1), rpy(2)};
+inline Vector3 rpyFromRotationMatrix(const RotationMatrix& r) {
+  return RotationMatrix2RPY(r);
 }
 
-inline RPY RPY::fromQuaternion(const Quaternion& q) {
-  const Vector3 rpy = Quaternion2RPY(q);
-  return RPY{rpy(0), rpy(1), rpy(2)};
+inline Vector3 rpyFromQuaternion(const Quaternion& q) {
+  return Quaternion2RPY(q);
 }
 
 }  // namespace sfc

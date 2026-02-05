@@ -30,7 +30,7 @@ include_directories(
 )
 
 add_executable(uvms_api_test
-  src/uvms_api_test.cpp
+  test/uvms_api_test.cpp
 )
 target_link_libraries(uvms_api_test
   ${catkin_LIBRARIES}
@@ -48,5 +48,12 @@ add_executable(joint_cmd_watchdog
   src/joint_cmd_watchdog.cpp
 )
 target_link_libraries(joint_cmd_watchdog
+  ${catkin_LIBRARIES}
+)
+
+add_executable(task_priority_solver_test
+  test/task_priority_solver_test.cpp
+)
+target_link_libraries(task_priority_solver_test
   ${catkin_LIBRARIES}
 )

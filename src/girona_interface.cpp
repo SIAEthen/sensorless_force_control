@@ -87,10 +87,10 @@ void GironaInterface::odomCallback(const nav_msgs::Odometry& msg) {
                           static_cast<sfc::Real>(q_msg.x),
                           static_cast<sfc::Real>(q_msg.y),
                           static_cast<sfc::Real>(q_msg.z)};
-  const sfc::RPY rpy = sfc::RPY::fromQuaternion(q);
-  state.position[3] = rpy.roll;
-  state.position[4] = rpy.pitch;
-  state.position[5] = rpy.yaw;
+  const sfc::Vector3 rpy = sfc::rpyFromQuaternion(q);
+  state.position[3] = rpy(0);
+  state.position[4] = rpy(1);
+  state.position[5] = rpy(2);
 
   state.velocity[0] = static_cast<sfc::Real>(msg.twist.twist.linear.x);
   state.velocity[1] = static_cast<sfc::Real>(msg.twist.twist.linear.y);

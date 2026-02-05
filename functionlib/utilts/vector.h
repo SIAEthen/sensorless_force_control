@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstddef>
 #include <stdexcept>
+#include <ostream>
 
 #include "config.h"
 
@@ -69,6 +70,20 @@ inline Vector3 cross(const Vector3& a, const Vector3& b) {
   r(1) = a(2) * b(0) - a(0) * b(2);
   r(2) = a(0) * b(1) - a(1) * b(0);
   return r;
+}
+
+template <std::size_t Size>
+inline void printVector(const Vector<Size>& v,
+                        std::ostream& os,
+                        const char* name) {
+  os << name << " (" << Size << ")\n";
+  for (std::size_t i = 0; i < Size; ++i) {
+    os << v(i);
+    if (i + 1 < Size) {
+      os << " ";
+    }
+  }
+  os << "\n";
 }
 
 }  // namespace sfc
