@@ -1,3 +1,4 @@
+# this is very stupid, I quit and now I will use the urdf configuration
 import numpy as np
 from cmath import atan, pi
 
