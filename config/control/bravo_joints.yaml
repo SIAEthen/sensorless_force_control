@@ -1,0 +1,39 @@
+joints:
+  # only moving joint are support to build the manipulator kinematics now.
+  bravo/joint1:
+    type: revolute
+    axis: [0.0, 0.0, -1.0]
+    origin:
+      xyz: [0.0, 0.0, 0.0]
+      rpy: [3.141592653589793, 0.0, 0.0]
+  bravo/joint2:
+    type: revolute
+    axis: [0.0, 0.0, 1.0]
+    origin:
+      xyz: [0.046, 0.0, 0.0674]
+      rpy: [1.5707963267948966, 0.0, 0.0]
+  bravo/joint3:
+    type: revolute
+    axis: [0.0, 0.0, 1.0]
+    origin:
+      xyz: [0.2906, 0.0, 0.0]
+      rpy: [0.0, 0.0, 0.0]
+  bravo/joint4:
+    type: revolute
+    axis: [0.0, 0.0, -1.0]
+    origin:
+      xyz: [0.0408, -0.09695, 0.0]
+      rpy: [-1.5707963267948966, 0.0, 3.141592653589793]
+  bravo/joint5:
+    type: revolute
+    axis: [0.0, 0.0, 1.0]
+    origin:
+      xyz: [-0.0408, 0.0, 0.063]
+      rpy: [-1.5707963267948966, 0.0, 0.0]
+  bravo/joint6:
+    type: revolute
+    axis: [0.0, 0.0, -1.0]
+    origin:
+      xyz: [0.0408, -0.08863, 0.0]
+      rpy: [1.5707963267948966, 0.0, 0.0]
+  # tool link, you need to set it manually.

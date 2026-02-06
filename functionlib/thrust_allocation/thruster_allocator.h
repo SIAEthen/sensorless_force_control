@@ -12,7 +12,7 @@
 namespace sfc {
 
 template <std::size_t Thrusters>
-class ThrusterAllocator {
+class ThrusterAllocatorBase {
 public:
   void setAllocationMatrix(const Matrix<6, Thrusters>& allocation) {
     allocation_ = allocation;

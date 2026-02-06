@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <ostream>
 #include <stdexcept>
 
 #include "config.h"
@@ -26,6 +27,7 @@ struct RotationMatrix {
   sfc::Real operator()(std::size_t row, std::size_t col) const;
   sfc::Real& operator()(std::size_t row, std::size_t col);
   RotationMatrix operator*(const RotationMatrix& other) const;
+  Vector3 operator*(const Vector3& v) const;
   bool isFinite() const;
 
   static RotationMatrix identity();
@@ -43,6 +45,8 @@ struct HomogeneousMatrix {
   sfc::Real operator()(std::size_t row, std::size_t col) const;
   sfc::Real& operator()(std::size_t row, std::size_t col);
   HomogeneousMatrix operator*(const HomogeneousMatrix& other) const;
+  Vector<4> operator*(const Vector<4>& v) const;
+  Vector3 operator*(const Vector3& v) const;
   bool isFinite() const;
 
   static HomogeneousMatrix identity();
@@ -74,6 +78,21 @@ struct Quaternion {
   Quaternion conjugate() const;
   Quaternion inverse() const;
 };
+
+inline void printQuaternion(const Quaternion& q, std::ostream& os, const char* name) {
+  os << name << ": [w=" << q.w
+     << ", x=" << q.x
+     << ", y=" << q.y
+     << ", z=" << q.z << "]\n";
+}
+
+inline void printMatrix(const RotationMatrix& r, std::ostream& os, const char* name) {
+  printMatrix(r.m, os, name);
+}
+
+inline void printMatrix(const HomogeneousMatrix& t, std::ostream& os, const char* name) {
+  printMatrix(t.m, os, name);
+}
 
 
 inline sfc::Real RotationMatrix::operator()(std::size_t row, std::size_t col) const {
@@ -154,6 +173,14 @@ inline RotationMatrix RotationMatrix::operator*(const RotationMatrix& other) con
   return result;
 }
 
+inline Vector3 RotationMatrix::operator*(const Vector3& v) const {
+  Vector3 r{};
+  r(0) = m(0, 0) * v(0) + m(0, 1) * v(1) + m(0, 2) * v(2);
+  r(1) = m(1, 0) * v(0) + m(1, 1) * v(1) + m(1, 2) * v(2);
+  r(2) = m(2, 0) * v(0) + m(2, 1) * v(1) + m(2, 2) * v(2);
+  return r;
+}
+
 inline RotationMatrix RotationMatrix::transpose() const {
   RotationMatrix r{};
   r.m = m.transpose();
@@ -201,6 +228,21 @@ inline HomogeneousMatrix HomogeneousMatrix::operator*(const HomogeneousMatrix& o
   HomogeneousMatrix result{};
   result.m = m * other.m;
   return result;
+}
+
+inline Vector<4> HomogeneousMatrix::operator*(const Vector<4>& v) const {
+  Vector<4> r{};
+  r(0) = m(0, 0) * v(0) + m(0, 1) * v(1) + m(0, 2) * v(2) + m(0, 3) * v(3);
+  r(1) = m(1, 0) * v(0) + m(1, 1) * v(1) + m(1, 2) * v(2) + m(1, 3) * v(3);
+  r(2) = m(2, 0) * v(0) + m(2, 1) * v(1) + m(2, 2) * v(2) + m(2, 3) * v(3);
+  r(3) = m(3, 0) * v(0) + m(3, 1) * v(1) + m(3, 2) * v(2) + m(3, 3) * v(3);
+  return r;
+}
+
+inline Vector3 HomogeneousMatrix::operator*(const Vector3& v) const {
+  Vector<4> v4{v(0), v(1), v(2), static_cast<sfc::Real>(1.0)};
+  Vector<4> r4 = (*this) * v4;
+  return Vector3{r4(0), r4(1), r4(2)};
 }
 
 inline RotationMatrix HomogeneousMatrix::rotation() const {

@@ -6,8 +6,8 @@
 #include <stdexcept>
 
 #include "config.h"
-#include "functionlib/hardware/vehicle_base.h"
-#include "functionlib/hardware/uvms_single_arm.h"
+#include "functionlib/robot_model/vehicle_base.h"
+#include "functionlib/robot_model/uvms_single_arm.h"
 #include "utilts/error_representation.h"
 #include "utilts/matrix.h"
 #include "utilts/real.h"
