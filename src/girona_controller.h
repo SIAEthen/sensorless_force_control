@@ -10,6 +10,7 @@
 #include "functionlib/robot_model/uvms_single_arm.h"
 #include "girona_interface.h"
 #include "functionlib/utilts/print.h"
+#include "functionlib/thrust_allocation/thruster_allocator_base.h"
 
 namespace sfc {
 
@@ -31,12 +32,13 @@ class GironaController {
  private:
   void interfaceThread();
   void controlThread();
-  void initUvms();
+  void initializeController();
 
   ros::NodeHandle nh_;
   ros::NodeHandle pnh_;
   GironaInterface interface_;
   UvmsType uvms_;
+  sfc::ThrusterAllocatorBase<6> allocator_;
 
   ros::AsyncSpinner spinner_;
   std::thread interface_thread_;

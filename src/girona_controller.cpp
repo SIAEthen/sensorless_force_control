@@ -3,6 +3,8 @@
 #include <chrono>
 #include <utility>
 
+#include <yaml-cpp/yaml.h>
+
 namespace sfc {
 
 GironaController::GironaController(ros::NodeHandle nh, ros::NodeHandle pnh)
@@ -12,7 +14,7 @@ GironaController::GironaController(ros::NodeHandle nh, ros::NodeHandle pnh)
       uvms_(),
       spinner_(1) {
   n_thrusters_ = static_cast<std::size_t>(pnh_.param<int>("n_thrusters", 6));
-  initUvms();
+  initializeController();
 }
 
 GironaController::~GironaController() {
@@ -74,9 +76,9 @@ void GironaController::controlThread() {
 
 }
 
-void GironaController::initUvms() {
+void GironaController::initializeController() {
   // Placeholder for DH parameters and transforms; configure as needed by your arm.
-  ROS_INFO("Hello ROS! Initialize UVMS model from yaml file (obtained from URDF)");
+  ROS_INFO("Initialize UVMS model from yaml file (obtained from URDF)");
   
   sfc::ManipulatorFromYAML<GironaInterface::kArmDof> manip("bravo");
   const std::string yaml_path =
@@ -114,6 +116,44 @@ void GironaController::initUvms() {
   ROS_INFO("EE RPY (radians) Rx %f, Ry %f, Rz %f.",  rpy(0),rpy(1),rpy(2));
   // sfc::print(sfc::rpyFromRotationMatrix(t_ee_ned.rotation()),std::cout,"zero state ee rpy");
   // sfc::print(t_ee_ned.translation(),std::cout,"zero state ee xyz");
+  
+  
+  ROS_INFO("Now we initialize the TCM matrix from Yaml");
+  const std::string tcm_yaml_path = 
+          "/home/sia/girona_ws/src/sensorless_force_control/config/control/tcm.yaml";
+  try {
+    YAML::Node root = YAML::LoadFile(tcm_yaml_path);
+    const YAML::Node tcm_node = root["tcm"];
+    if (!tcm_node) {
+      throw std::runtime_error("Missing 'tcm' section in tcm.yaml");
+    }
+    const std::size_t rows = tcm_node["rows"].as<std::size_t>();
+    const std::size_t cols = tcm_node["cols"].as<std::size_t>();
+    if (rows != 6 || cols != 6) {
+      throw std::runtime_error("TCM must be 6x6");
+    }
+    const YAML::Node data = tcm_node["data"];
+    if (!data || !data.IsSequence() || data.size() != 6) {
+      throw std::runtime_error("TCM data must be a 6x6 sequence");
+    }
+
+    sfc::Matrix<6, 6> tcm{};
+    for (std::size_t r = 0; r < 6; ++r) {
+      const YAML::Node row = data[r];
+      if (!row.IsSequence() || row.size() != 6) {
+        throw std::runtime_error("Each TCM row must have 6 elements");
+      }
+      for (std::size_t c = 0; c < 6; ++c) {
+        tcm(r, c) = static_cast<sfc::Real>(row[c].as<double>());
+      }
+    }
+    allocator_.setAllocationMatrix(tcm);
+    sfc::print(tcm,std::cout,"TCM matrix");
+    ROS_INFO("TCM matrix loaded and set.");
+  } catch (const std::exception& ex) {
+    ROS_ERROR("Failed to load TCM: %s", ex.what());
+  }
+
 }
 
 }  // namespace sfc
