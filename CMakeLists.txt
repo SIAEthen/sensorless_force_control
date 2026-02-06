@@ -20,8 +20,10 @@ find_package(catkin REQUIRED
 catkin_package(
   INCLUDE_DIRS
   CATKIN_DEPENDS roscpp rospy nav_msgs geometry_msgs sensor_msgs std_msgs cola2_msgs
-  DEPENDS
+  DEPENDS yaml-cpp
 )
+
+find_package(yaml-cpp REQUIRED)
 
 include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}
@@ -42,6 +44,7 @@ add_executable(girona_controller
 )
 target_link_libraries(girona_controller
   ${catkin_LIBRARIES}
+  yaml-cpp
 )
 
 add_executable(joint_cmd_watchdog
@@ -49,6 +52,14 @@ add_executable(joint_cmd_watchdog
 )
 target_link_libraries(joint_cmd_watchdog
   ${catkin_LIBRARIES}
+)
+
+add_executable(manipulator_yaml_test
+  test/manipulator_yaml_test.cpp
+)
+target_link_libraries(manipulator_yaml_test
+  ${catkin_LIBRARIES}
+  yaml-cpp
 )
 
 add_executable(task_priority_solver_test

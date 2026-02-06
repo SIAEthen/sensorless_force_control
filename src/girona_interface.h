@@ -13,12 +13,11 @@
 
 #include <cola2_msgs/Setpoints.h>
 
-#include "functionlib/hardware/manipulator_base.h"
-#include "functionlib/hardware/vehicle_base.h"
+#include "functionlib/robot_model/manipulator_base.h"
+#include "functionlib/robot_model/vehicle_base.h"
 #include "functionlib/utilts/vector.h"
 
 namespace sfc {
-
 class GironaInterface {
  public:
   static constexpr std::size_t kArmDof = 6;

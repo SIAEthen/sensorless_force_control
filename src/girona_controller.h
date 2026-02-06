@@ -7,12 +7,14 @@
 
 #include <ros/ros.h>
 
-#include "functionlib/hardware/uvms_single_arm.h"
+#include "functionlib/robot_model/uvms_single_arm.h"
 #include "girona_interface.h"
+#include "functionlib/utilts/print.h"
 
 namespace sfc {
 
 class GironaController {
+  using UvmsType = sfc::UvmsSingleArm<GironaInterface::kArmDof,ManipulatorFromYAML<GironaInterface::kArmDof>>;
  public:
   GironaController(ros::NodeHandle nh, ros::NodeHandle pnh);
   ~GironaController();
@@ -23,8 +25,8 @@ class GironaController {
   GironaInterface& interface() { return interface_; }
   const GironaInterface& interface() const { return interface_; }
 
-  sfc::UvmsSingleArm<GironaInterface::kArmDof>& uvms() { return uvms_; }
-  const sfc::UvmsSingleArm<GironaInterface::kArmDof>& uvms() const { return uvms_; }
+  UvmsType& uvms() { return uvms_; }
+  const UvmsType& uvms() const { return uvms_; }
 
  private:
   void interfaceThread();
@@ -34,7 +36,7 @@ class GironaController {
   ros::NodeHandle nh_;
   ros::NodeHandle pnh_;
   GironaInterface interface_;
-  sfc::UvmsSingleArm<GironaInterface::kArmDof> uvms_;
+  UvmsType uvms_;
 
   ros::AsyncSpinner spinner_;
   std::thread interface_thread_;

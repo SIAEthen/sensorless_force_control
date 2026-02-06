@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "functionlib/hardware/uvms_single_arm.h"
+#include "functionlib/robot_model/uvms_single_arm.h"
 #include "functionlib/pid/pd.h"
 #include "functionlib/task_priority_control/possible_tasks.h"
 #include "functionlib/task_priority_control/task_priority_solver.h"
@@ -9,7 +9,7 @@
 
 int main() {
   constexpr std::size_t kArmDof = 7;
-  sfc::UvmsSingleArm<kArmDof> uvms("vehicle", "arm");
+  sfc::UvmsSingleArm<kArmDof> uvms;
 
   sfc::RotationMatrix r = sfc::RotationMatrix::fromRPY(0.1, 0.2, 0.3);
   sfc::Vector3 t = sfc::Vector3{0.1, 0.2, 0.5};

@@ -9,7 +9,7 @@ GironaController::GironaController(ros::NodeHandle nh, ros::NodeHandle pnh)
     : nh_(std::move(nh)),
       pnh_(std::move(pnh)),
       interface_(nh_, pnh_),
-      uvms_("vehicle", "arm"),
+      uvms_(),
       spinner_(1) {
   n_thrusters_ = static_cast<std::size_t>(pnh_.param<int>("n_thrusters", 6));
   initUvms();
@@ -58,7 +58,12 @@ void GironaController::controlThread() {
 
     while (control_running_.load() && ros::ok()) {
       
-        joint_velocities[0] = -0.1;
+        // joint_velocities[0] = -0.1;
+        // joint_velocities[1] = -0.1;
+        // joint_velocities[2] = -0.1;
+        // joint_velocities[3] = -0.1;
+        // joint_velocities[4] = -0.1;
+        // joint_velocities[5] = -0.1;
         (void)interface_.vehicleState();
         (void)interface_.manipulatorState();
         (void)interface_.wrench();
@@ -71,7 +76,44 @@ void GironaController::controlThread() {
 
 void GironaController::initUvms() {
   // Placeholder for DH parameters and transforms; configure as needed by your arm.
+  ROS_INFO("Hello ROS! Initialize UVMS model from yaml file (obtained from URDF)");
   
+  sfc::ManipulatorFromYAML<GironaInterface::kArmDof> manip("bravo");
+  const std::string yaml_path =
+      "/home/sia/girona_ws/src/sensorless_force_control/config/control/bravo_joints.yaml";
+  ROS_INFO("Yaml file path is: %s", yaml_path.c_str());
+  const std::array<std::string, GironaInterface::kArmDof> joint_names = {{
+      "bravo/joint1",
+      "bravo/joint2",
+      "bravo/joint3",
+      "bravo/joint4",
+      "bravo/joint5",
+      "bravo/joint6",
+  }};
+  manip.setParametersFromFile(yaml_path, joint_names);
+  // get the params from ros
+  sfc::HomogeneousMatrix t_tool_linkend = sfc::HomogeneousMatrix::fromRotationTranslation
+                                        (sfc::RotationMatrix::fromRPY(0,0,-2.88), sfc::Vector3{0.084, 0.022, 0.372});
+  manip.setToolTransformationFromT(t_tool_linkend);
+  // read from rosrun tf tf_echo girona1000/base_link girona1000/bravo/base_link no, this is wrong. we should use the origin link
+  // rosrun tf tf_echo girona1000/base_link girona1000/bravo/base_link
+  // rostopic echo /girona1000/dynamics/odometry
+  sfc::RotationMatrix r = sfc::RotationMatrix::fromRPY(3.142, 0.000, -0.175);
+  sfc::Vector3 t = sfc::Vector3{0.732, -0.138, 0.271}; //from bravo/base_link to girona1000/base_link
+  // sfc::Vector3 t = sfc::Vector3{0.732, -0.138, 0.485};    //from bravo/base_link to girona1000/origin
+  sfc::HomogeneousMatrix t_0_b = sfc::HomogeneousMatrix::fromRotationTranslation(r, t);
+  uvms_.setManipulatorBaseToVehicleTransform(t_0_b);
+  uvms_.setManipulator(manip);
+  
+  sfc::HomogeneousMatrix t_ee_ned = uvms_.forwardKinematics();
+  sfc::Vector3 rpy = sfc::rpyFromRotationMatrix(t_ee_ned.rotation());
+  sfc::Vector3 xyz = t_ee_ned.translation();
+  ROS_INFO("Parameters init success! Do the transformation test! Try call cmd at zero joint state!");
+  ROS_INFO("rosrun tf tf_echo girona1000/base_link girona1000/bravo/cp_probe_tip_link");
+  ROS_INFO("EE Position (meters) X %f, Y %f, Z %f.", xyz(0),xyz(1),xyz(2));
+  ROS_INFO("EE RPY (radians) Rx %f, Ry %f, Rz %f.",  rpy(0),rpy(1),rpy(2));
+  // sfc::print(sfc::rpyFromRotationMatrix(t_ee_ned.rotation()),std::cout,"zero state ee rpy");
+  // sfc::print(t_ee_ned.translation(),std::cout,"zero state ee xyz");
 }
 
 }  // namespace sfc
