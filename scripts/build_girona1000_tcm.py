@@ -128,8 +128,15 @@ def main() -> None:
   s = np.linalg.svd(tcm_read, compute_uv=False)
   print("cond:", cond)
   print("sigma min/max:", s.min(), s.max())
-
-  print(damped_pseudoinverse(tcm_read))
+  print("damped_pseudoinverse(tcm_read):", damped_pseudoinverse(tcm_read))
+#   damped_pseudoinverse(tcm_read): 
+# [[-0.353393  0.346095 -0.00005  -0.047496 -0.000125 -0.4483  ]
+#  [-0.353432 -0.343636  0.000052  0.062861  0.000121  0.4483  ]
+#  [ 0.353433  0.346093  0.000052 -0.047507 -0.000125  0.4483  ]
+#  [ 0.353393 -0.343638 -0.00005   0.06285   0.000121 -0.4483  ]
+#  [-0.143213  0.000015 -0.5       0.000092  0.895095  0.      ]
+#  [ 0.143215 -0.000015 -0.5      -0.000092 -0.895095 -0.      ]]
+  print(damped_pseudoinverse(tcm_read)@np.array([4.73009, -181.302, 85.0827, -0.0728264, -12.1141, -14.0994]))
   print(damped_pseudoinverse(tcm_read)@np.array([1,0,0,0,0,0]))
   print(tcm_read@damped_pseudoinverse(tcm_read)@np.array([1,0,0,0,0,0]))
   for i in range(6):

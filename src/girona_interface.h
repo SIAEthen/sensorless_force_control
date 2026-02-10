@@ -33,8 +33,8 @@ class GironaInterface {
   sensor_msgs::JointState jointState() const;
   sfc::Vector6 wrench() const;
 
-  void sendThrusterSetpoints(const std::vector<double>& setpoints);
-  void sendJointVelocityCommand(const std::vector<double>& velocities);
+  void sendThrusterSetpoints(const sfc::Vector6& setpoints);
+  void sendJointVelocityCommand(const sfc::Vector6& velocities);
 
  private:
   void odomCallback(const nav_msgs::Odometry& msg);

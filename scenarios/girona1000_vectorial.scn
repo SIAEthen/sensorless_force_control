@@ -51,13 +51,13 @@
 			</external_part>
 			
 			
-			<external_part name="Box" type="box" physics="submerged" buoyant="true">
+			<!-- <external_part name="Box" type="box" physics="submerged" buoyant="true">
 				<dimensions xyz="0.2 0.1 0.1"/>
 				<origin xyz="0.0 0.0 0.0" rpy="0.0 0.0 0.0"/>
 				<material name="Neutral"/>
 				<look name="Yellow"/>
 				<compound_transform rpy="0.0 0.0 0.0" xyz="0.3 0 -0.1475" />
-			</external_part>
+			</external_part> -->
 
 
 

@@ -4,7 +4,7 @@
 #include <atomic>
 #include <thread>
 #include <vector>
-
+#include <cstdlib> // rand()
 #include <ros/ros.h>
 
 #include "functionlib/robot_model/uvms_single_arm.h"
@@ -36,6 +36,16 @@ inline sfc::Vector<6> convertForceToSetpoints(const sfc::Vector<6> force){
   }
   return setpoints;
 }
+inline sfc::Vector<6> getRandomJointPosition(){
+  sfc::Vector<6> joint_position{};
+  sfc::Vector<6> min{-sfc::kPi4,-sfc::kPi4,-sfc::kPi4,-sfc::kPi4,-sfc::kPi2,-sfc::kPi4};
+  sfc::Vector<6> max{sfc::kPi4,sfc::kPi4,sfc::kPi4,sfc::kPi4,0,sfc::kPi4};
+  for(int8_t i=0; i<6;i++){
+    double r = static_cast<double>(rand()%100)/100.0;
+    joint_position(i) = r*(max(i)-min(i)) + min(i);
+  }
+  return joint_position;
+}
 
 namespace sfc {
 
@@ -65,6 +75,7 @@ class GironaController {
   UvmsType uvms_;
   sfc::ThrusterAllocatorDls<6> allocator_;
   sfc::PidController<6> pid_;
+  sfc::PController<6> p_;
 
   ros::AsyncSpinner spinner_;
   std::thread interface_thread_;

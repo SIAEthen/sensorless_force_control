@@ -14,31 +14,17 @@ namespace sfc {
 template <std::size_t Thrusters>
 class ThrusterAllocatorBase {
 public:
-  void setAllocationMatrix(const Matrix<6, Thrusters>& allocation) {
-    allocation_ = allocation;
-  }
+  virtual ~ThrusterAllocatorBase() = default;
 
-  void setLimits(const Vector<Thrusters>& min_force,
-                 const Vector<Thrusters>& max_force) {
-    min_force_ = min_force;
-    max_force_ = max_force;
-  }
+  virtual void setAllocationMatrix(const Matrix<6, Thrusters>& allocation) = 0;
 
-  Vector<Thrusters> allocate(const Vector6& desired_wrench,
-                             Real damping = static_cast<Real>(1e-3)) const {
-    if (!desired_wrench.isFinite() || !allocation_.isFinite() || !isFinite(damping)) {
-      throw std::runtime_error("ThrusterAllocator::allocate: non-finite value");
-    }
-    if (damping < zero()) {
-      throw std::runtime_error("ThrusterAllocator::allocate: negative damping");
-    }
+  virtual void setLimits(const Vector<Thrusters>& min_force,
+                         const Vector<Thrusters>& max_force) = 0;
 
-    const Matrix<Thrusters, 6> pinv = pseudoInverseDls(allocation_, damping);
-    Vector<Thrusters> forces = matVec(pinv, desired_wrench);
-    return clampVector(forces, min_force_, max_force_);
-  }
+  virtual Vector<Thrusters> allocate(const Vector6& desired_wrench,
+                                     Real damping = static_cast<Real>(1e-3)) const = 0;
 
-private:
+protected:
   Matrix<6, Thrusters> allocation_{};
   Vector<Thrusters> min_force_{};
   Vector<Thrusters> max_force_{};

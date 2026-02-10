@@ -14,7 +14,7 @@ int main() {
   sfc::ManipulatorFromYAML<kDof> manip("bravo");
 
   const std::string yaml_path =
-      "/home/sia/girona_ws/src/sensorless_force_control/test/bravo_joints.yaml";
+      "/home/sia/girona_ws/src/sensorless_force_control/config/control/bravo_joints.yaml";
   const std::array<std::string, kDof> joint_names = {{
       "bravo/joint1",
       "bravo/joint2",

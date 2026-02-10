@@ -47,6 +47,16 @@ target_link_libraries(girona_controller
   yaml-cpp
 )
 
+add_executable(girona_controller_collect_data
+  src/girona_controller_collect_data.cpp
+  src/girona_interface.cpp
+)
+target_link_libraries(girona_controller_collect_data
+  ${catkin_LIBRARIES}
+  yaml-cpp
+)
+
+
 add_executable(joint_cmd_watchdog
   src/joint_cmd_watchdog.cpp
 )

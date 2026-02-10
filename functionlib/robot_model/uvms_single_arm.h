@@ -5,6 +5,7 @@
 
 #include "robot_model/manipulator_base.h"
 #include "robot_model/manipulator_from_yaml.h"
+#include "robot_model/manipulator_from_dh.h"
 #include "robot_model/vehicle_base.h"
 #include "utilts/matrix.h"
 #include "utilts/rotation.h"
@@ -13,7 +14,7 @@
 namespace sfc {
 
 template <std::size_t kUvmsArmDof,
-          typename ManipulatorT = ManipulatorBase<kUvmsArmDof>,
+          typename ManipulatorT = ManipulatorFromYAML<kUvmsArmDof>,
           typename VehicleT = VehicleBase>
 class UvmsSingleArm {
 public:
@@ -46,6 +47,10 @@ public:
   }
 
   Vector3 vehicleRpy() const { return vehicle_.rpy(); }
+  
+  RotationMatrix vehicleRotationMatrixBaseToInertial() const {
+    return vehicle_.getRotationMatrixBaseToInertial();
+  }
 
   Quaternion vehicleQuaternion() const { return Quaternion::fromRPY(vehicle_.rpy()); }
 

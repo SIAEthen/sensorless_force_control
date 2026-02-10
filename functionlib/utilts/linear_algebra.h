@@ -142,6 +142,19 @@ Vector<Size> clampVector(const Vector<Size>& value,
   return out;
 }
 
+template <std::size_t Size>
+Real vectorNorm(const Vector<Size>& v) {
+  if (!v.isFinite()) {
+    throw std::runtime_error("vectorNorm: non-finite value");
+  }
+  Real sum = 0.0;
+  for (std::size_t i = 0; i < Size; ++i) {
+    const Real value = v(i);
+    sum += value * value;
+  }
+  return std::sqrt(sum);
+}
+
 template <std::size_t Rows, std::size_t Cols>
 Real frobeniusNorm(const Matrix<Rows, Cols>& m) {
   if (!m.isFinite()) {
@@ -155,6 +168,11 @@ Real frobeniusNorm(const Matrix<Rows, Cols>& m) {
     }
   }
   return std::sqrt(sum);
+}
+
+template <std::size_t Rows, std::size_t Cols>
+Real matrixNorm(const Matrix<Rows, Cols>& m) {
+  return frobeniusNorm(m);
 }
 
 }  // namespace sfc

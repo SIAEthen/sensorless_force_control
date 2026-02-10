@@ -63,16 +63,16 @@ sfc::Vector6 GironaInterface::wrench() const {
   return wrench_;
 }
 
-void GironaInterface::sendThrusterSetpoints(const std::vector<double>& setpoints) {
+void GironaInterface::sendThrusterSetpoints(const sfc::Vector6& setpoints) {
   cola2_msgs::Setpoints msg;
   msg.header.stamp = ros::Time::now();
-  msg.setpoints = setpoints;
+  msg.setpoints.assign(setpoints.data.begin(), setpoints.data.end());
   thruster_pub_.publish(msg);
 }
 
-void GironaInterface::sendJointVelocityCommand(const std::vector<double>& velocities) {
+void GironaInterface::sendJointVelocityCommand(const sfc::Vector6& velocities) {
   std_msgs::Float64MultiArray msg;
-  msg.data = velocities;
+  msg.data.assign(velocities.data.begin(), velocities.data.end());
   joint_velocity_pub_.publish(msg);
 }
 

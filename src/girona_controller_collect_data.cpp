@@ -1,10 +1,10 @@
-#include "girona_controller.h"
+#include "girona_controller_collect_data.h"
 
 #include <chrono>
 #include <utility>
 
 #include <yaml-cpp/yaml.h>
-
+// #define DEBUG_CONTROLLER 
 namespace sfc {
 
 GironaController::GironaController(ros::NodeHandle nh, ros::NodeHandle pnh)
@@ -59,8 +59,10 @@ void GironaController::controlThread() {
     sfc::Vector6 setpoints{};
     sfc::Vector6 joint_velocities{};
     ros::Time last = ros::Time::now();
+    Vector6 desired_joint_position = getRandomJointPosition();
     while (control_running_.load() && ros::ok()) {
-      
+        
+            
         // joint_velocities[0] = -0.1;
         // joint_velocities[1] = -0.1;
         // joint_velocities[2] = -0.1;
@@ -84,7 +86,18 @@ void GironaController::controlThread() {
         sfc::Matrix<kSysDof, kSysDof> N = sfc::identity<kSysDof>();
         sfc::Vector<kSysDof> zeta{};
         const sfc::Real damping = static_cast<sfc::Real>(1e-3);
-
+        
+        // Task: Vehicle position
+        sfc::Matrix<3, kSysDof> J_xyz{};
+        sfc::Vector<3> sigma_xyz{};
+        const sfc::Vector<3> xyz_ref{0.0,0.0,2.0};
+        const sfc::Vector<3> xyz_gain{2,2,1};
+        sfc::buildVehiclePositionTask(uvms_, xyz_ref, xyz_gain, J_xyz, sigma_xyz);
+        zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(sigma_xyz, J_xyz, N, zeta, damping);
+        #ifdef DEBUG_CONTROLLER
+          sfc::print(sigma_xyz,std::cout,"sigma_xyz");
+          sfc::print(zeta,std::cout,"zeta");
+        #endif
         // Task 1: roll/pitch stabilization
         // sfc::Matrix<2, kSysDof> J_rp{};
         // sfc::Vector<2> sigma_rp{};
@@ -95,39 +108,49 @@ void GironaController::controlThread() {
         sfc::Matrix<3, kSysDof> J_rpy{};
         sfc::Vector<3> sigma_rpy{};
         const sfc::Vector<3> rpy_ref{0.0,0.0,0.5};
-        const sfc::Vector<3> rpy_gain{0.5,0.5,0.1};
-        sfc::buildRollPitchYawTask(uvms_, rpy_ref, rpy_gain, J_rpy,  sigma_rpy);
+        const sfc::Vector<3> rpy_gain{0.0,1.0,2.0};
+        sfc::buildRollPitchYawTask(uvms_, rpy_ref, rpy_gain, J_rpy, sigma_rpy);
         zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(sigma_rpy, J_rpy, N, zeta, damping);
-        sfc::print(sigma_rpy,std::cout,"sigma_rpy");
-        sfc::print(zeta,std::cout,"zeta");
+        #ifdef DEBUG_CONTROLLER
+          sfc::print(sigma_rpy,std::cout,"sigma_rpy");
+          sfc::print(zeta,std::cout,"zeta");
+        #endif
 
-        // Task 2: end-effector task (set your references)
-        sfc::Matrix<6, kSysDof> J_ee{};
-        sfc::Vector<6> sigma_ee{};
-        const sfc::Vector3 pos_ref{0,0,3};
-        // const sfc::Quaternion q_ref = uvms_.endEffectorQuaternionNed();
-        const sfc::Quaternion q_ref = sfc::Quaternion::fromRPY(0,0.0,0);
-        sfc::buildEeTask(uvms_, pos_ref, q_ref, J_ee, sigma_ee);
-        zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_ee, J_ee, N, zeta, damping);
-        sfc::print(sigma_ee,std::cout,"sigma_ee");
-        sfc::print(zeta,std::cout,"zeta");
 
         // Task 3: nominal joint configuration
-        sfc::Matrix<3, kSysDof> J_nominal{};
-        sfc::Vector<3> sigma_nominal{};
-        const sfc::Vector<3> nominal_config = sfc::Vector<3>{};
-        sfc::buildNominal3ConfigTask(uvms_, nominal_config, J_nominal, sigma_nominal);
-        zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(sigma_nominal, J_nominal, N, zeta, damping);
-        sfc::print(zeta,std::cout,"velocity");
+        sfc::Matrix<6, kSysDof> J_nominal{};
+        sfc::Vector<6> sigma_nominal{};
+        const sfc::Vector<6> nominal_config = desired_joint_position;
+        sfc::buildNominalConfigTask(uvms_, nominal_config, J_nominal, sigma_nominal);
+        zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_nominal, J_nominal, N, zeta, damping);
+        #ifdef DEBUG_CONTROLLER
+          sfc::print(zeta,std::cout,"velocity");
+        #endif
+
+        if(sfc::vectorNorm(uvms_.vehicleVelocity())< 0.01
+            && sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position)< 0.02
+            && std::fabs(uvms_.vehicleRpy()(1))< 0.03
+          )
+          {
+                desired_joint_position = getRandomJointPosition();
+                sfc::print(desired_joint_position,std::cout,"desired_joint_position");
+          }else{
+            std::cout << sfc::vectorNorm(uvms_.vehicleVelocity()) << " " 
+            << sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position) << " " 
+            << std::fabs(uvms_.vehicleRpy()(1)) << std::endl;
+          }
+
 
 
         sfc::Vector6 nu_d{zeta(0),zeta(1),zeta(2),zeta(3),zeta(4),zeta(5)};
         sfc::Vector6 error = nu_d - uvms_.vehicleVelocity();
         sfc::Vector6 control_wrench = pid_.update(error,dt);
-        sfc::print(control_wrench,std::cout,"control wrench");
         sfc::Vector6 force = allocator_.allocate(control_wrench,0.0001);
         setpoints = convertForceToSetpoints(force);
-        sfc::print(setpoints,std::cout,"setpoints");
+        #ifdef DEBUG_CONTROLLER
+          sfc::print(control_wrench,std::cout,"control wrench");
+          sfc::print(setpoints,std::cout,"setpoints");
+        #endif
         joint_velocities(0) = zeta(6);
         joint_velocities(1) = zeta(7);
         joint_velocities(2) = zeta(8);
@@ -224,12 +247,14 @@ void GironaController::initializeController() {
   }
 
   ROS_INFO("Init PID controller");
-  sfc::Vector6 kp{50,50,50,20,30,20};
-  sfc::Vector6 ki{1,1,5,1,5,1};
-  sfc::Vector6 kd{8,8,8,2,4,4};
-  sfc::Vector6 i_sat{50,50,100,10,50,10};
+  sfc::Vector6 kp{50,50,50,0,30,20};
+  sfc::Vector6 ki{1,1,5,0,5,1};
+  sfc::Vector6 kd{8,8,8,0,4,4};
+  sfc::Vector6 i_sat{50,50,100,0,50,10};
   pid_.setGains(kp,ki,kd);
   pid_.setIntegratorLimits(i_sat);
+
+  p_.setGains(sfc::Vector6{1,1,1,1,1,1});
 
 }
 

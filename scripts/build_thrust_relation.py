@@ -57,3 +57,16 @@ F = c1*n*abs(n)
 
 T = Kq0 * rho *n*abs(n) * D**5
 print(s2,rpm,F,T) #  30.388781210356445]
+from math import sqrt
+
+def thrust2setpoint(f):
+    s = 0
+    max_rpm = 1000.0
+    KT = 0.48
+    D = 0.18
+    rho = 1000.0
+    n2 = f/(KT*rho*D**4)
+    n = sqrt(abs(n2))
+    s = 60*n/1000.0
+    return s
+print(thrust2setpoint(30.38))
