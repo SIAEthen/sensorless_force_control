@@ -38,11 +38,19 @@ int main() {
 
   sfc::printMatrix(t_ee.m, std::cout, "T_ee");
   sfc::printMatrix(j, std::cout, "Jacobian");
+
   const sfc::Vector3 rpy_ee = sfc::RotationMatrix2RPY(t_ee.rotation());
   const sfc::Quaternion quat_ee = sfc::Quaternion::fromRotationMatrix(t_ee.rotation());
-
+  // PASS TEST
+  // rpy_ee: [-2.68268e-16, -5.49549e-17, 0.261593]
+  // Quaternion_ee: [w=0.991458, x=-1.29405e-16, y=-4.4737e-17, z=0.130424]
+  //   xyz ee (No tool) (3)
+  // 0.2934 -0.022 0.55318
   std::cout << "rpy_ee: [" << rpy_ee(0) << ", " << rpy_ee(1) << ", " << rpy_ee(2) << "]\n";
   sfc::print(quat_ee,std::cout, "Quaternion_ee");
+  sfc::print(t_ee.translation(),std::cout, "xyz ee (with tool)");
+
+
 
 // PASS TEST
 // At time 1770299967.670

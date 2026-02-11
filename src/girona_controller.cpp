@@ -92,14 +92,14 @@ void GironaController::controlThread() {
         // sfc::buildRollPitchTask(uvms_, rp_ref, J_rp, sigma_rp);
         // zeta = sfc::taskPrioritySolveStep<kSysDof, 2>(sigma_rp, J_rp, N, zeta, damping);
         // Task 1.5: roll/pitch/yaw stabilization
+        const sfc::Vector<3> rpy_ref{0.0,0.0,0.5};
+        const sfc::Vector<3> rpy_gain{0.0,1.0,2.0};
         sfc::Matrix<3, kSysDof> J_rpy{};
         sfc::Vector<3> sigma_rpy{};
-        const sfc::Vector<3> rpy_ref{0.0,0.0,0.5};
-        const sfc::Vector<3> rpy_gain{0.5,0.5,0.1};
-        sfc::buildRollPitchYawTask(uvms_, rpy_ref, rpy_gain, J_rpy,  sigma_rpy);
-        zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(sigma_rpy, J_rpy, N, zeta, damping);
-        sfc::print(sigma_rpy,std::cout,"sigma_rpy");
-        sfc::print(zeta,std::cout,"zeta");
+        sfc::Vector<3> task_vel_rpy{};
+        sfc::buildRollPitchYawTask(uvms_, rpy_ref, J_rpy, sigma_rpy);
+        sfc::buildTaskVelocity<3>(sfc::Vector3{},sigma_rpy,rpy_gain,task_vel_rpy);
+        zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(task_vel_rpy, J_rpy, N, zeta, damping);
 
         // Task 2: end-effector task (set your references)
         sfc::Matrix<6, kSysDof> J_ee{};

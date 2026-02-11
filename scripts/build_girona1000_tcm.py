@@ -117,8 +117,8 @@ def main() -> None:
   data = cfg["tcm"].get("data", None)
 
   tcm_read = np.array(data)
-  print(tcm_read)
-  print(np.linalg.matrix_rank(tcm_read))
+  print("tcm read from yaml file ",tcm_read)
+  print("tcm rank ",np.linalg.matrix_rank(tcm_read))
   print(np.linalg.inv(tcm_read))
   print(np.linalg.pinv(tcm_read))
   print(np.linalg.pinv(tcm_read)@np.array([1,0,0,0,0,0]))

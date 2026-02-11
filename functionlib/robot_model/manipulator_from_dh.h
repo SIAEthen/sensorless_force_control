@@ -43,7 +43,7 @@ class ManipulatorFromDH : public ManipulatorBase<Dof> {
     for (std::size_t i = 0; i < Dof; ++i) {
       t = t * dhTransform(dh_params_[i], this->state_.q[i]);
     }
-    return t * this->t_tool_linkend_;
+    return t * this->toolTransformation();
   }
 
   Jacobian jacobian() const override {
@@ -76,6 +76,18 @@ class ManipulatorFromDH : public ManipulatorBase<Dof> {
       j(5, i) = z(2);
     }
     return j;
+  }
+
+  std::array<HomogeneousMatrix, Dof + 1> jointTransforms() const override {
+    std::array<HomogeneousMatrix, Dof + 1> Ts{};
+    HomogeneousMatrix t = HomogeneousMatrix::identity();
+
+    for (std::size_t i = 0; i < Dof; ++i) {
+      t = t * dhTransform(dh_params_[i], this->state_.q[i]);
+      Ts[i] = t;
+    }
+    Ts[Dof] = t * this->toolTransformation();
+    return Ts;
   }
 
  private:

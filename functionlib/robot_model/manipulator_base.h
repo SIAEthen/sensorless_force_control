@@ -33,7 +33,7 @@ public:
   void setToolTransformationFromT(const HomogeneousMatrix& t_tool_linkend) {
     t_tool_linkend_ = t_tool_linkend;
   }
-  const HomogeneousMatrix& toolTransformationFromT() const { return t_tool_linkend_; }
+  const HomogeneousMatrix& toolTransformation() const { return t_tool_linkend_; }
 
   void setState(const State& state) { state_ = state; }
   const State& state() const { return state_; }
@@ -49,6 +49,7 @@ public:
   // Returns T_ee_world. For the manipulator, world frame is the base frame.
   virtual HomogeneousMatrix forwardKinematics() const = 0;
   virtual Jacobian jacobian() const = 0;
+  virtual std::array<HomogeneousMatrix, kDof + 1> jointTransforms() const = 0;
 
 protected:
   std::string name_;

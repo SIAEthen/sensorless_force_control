@@ -1,6 +1,9 @@
 #include "girona_controller_collect_data.h"
 
 #include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
 #include <utility>
 
 #include <yaml-cpp/yaml.h>
@@ -43,6 +46,10 @@ void GironaController::stop() {
   if (control_thread_.joinable()) {
     control_thread_.join();
   }
+  if (logger_open_) {
+    logger_.close();
+    logger_open_ = false;
+  }
   
 }
 
@@ -59,6 +66,7 @@ void GironaController::controlThread() {
     sfc::Vector6 setpoints{};
     sfc::Vector6 joint_velocities{};
     ros::Time last = ros::Time::now();
+    ros::Time reset_time = ros::Time::now();
     Vector6 desired_joint_position = getRandomJointPosition();
     while (control_running_.load() && ros::ok()) {
         
@@ -88,12 +96,14 @@ void GironaController::controlThread() {
         const sfc::Real damping = static_cast<sfc::Real>(1e-3);
         
         // Task: Vehicle position
-        sfc::Matrix<3, kSysDof> J_xyz{};
-        sfc::Vector<3> sigma_xyz{};
         const sfc::Vector<3> xyz_ref{0.0,0.0,2.0};
         const sfc::Vector<3> xyz_gain{2,2,1};
-        sfc::buildVehiclePositionTask(uvms_, xyz_ref, xyz_gain, J_xyz, sigma_xyz);
-        zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(sigma_xyz, J_xyz, N, zeta, damping);
+        sfc::Matrix<3, kSysDof> J_xyz{};
+        sfc::Vector<3> sigma_xyz{};
+        sfc::Vector<3> task_vel_xyz{};
+        sfc::buildVehiclePositionTask(uvms_, xyz_ref, J_xyz, sigma_xyz);
+        sfc::buildTaskVelocity<3>(sfc::Vector3{},sigma_xyz,xyz_gain,task_vel_xyz);
+        zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(task_vel_xyz, J_xyz, N, zeta, damping);
         #ifdef DEBUG_CONTROLLER
           sfc::print(sigma_xyz,std::cout,"sigma_xyz");
           sfc::print(zeta,std::cout,"zeta");
@@ -105,12 +115,14 @@ void GironaController::controlThread() {
         // sfc::buildRollPitchTask(uvms_, rp_ref, J_rp, sigma_rp);
         // zeta = sfc::taskPrioritySolveStep<kSysDof, 2>(sigma_rp, J_rp, N, zeta, damping);
         // Task 1.5: roll/pitch/yaw stabilization
-        sfc::Matrix<3, kSysDof> J_rpy{};
-        sfc::Vector<3> sigma_rpy{};
         const sfc::Vector<3> rpy_ref{0.0,0.0,0.5};
         const sfc::Vector<3> rpy_gain{0.0,1.0,2.0};
-        sfc::buildRollPitchYawTask(uvms_, rpy_ref, rpy_gain, J_rpy, sigma_rpy);
-        zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(sigma_rpy, J_rpy, N, zeta, damping);
+        sfc::Matrix<3, kSysDof> J_rpy{};
+        sfc::Vector<3> sigma_rpy{};
+        sfc::Vector<3> task_vel_rpy{};
+        sfc::buildRollPitchYawTask(uvms_, rpy_ref, J_rpy, sigma_rpy);
+        sfc::buildTaskVelocity<3>(sfc::Vector3{},sigma_rpy,rpy_gain,task_vel_rpy);
+        zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(task_vel_rpy, J_rpy, N, zeta, damping);
         #ifdef DEBUG_CONTROLLER
           sfc::print(sigma_rpy,std::cout,"sigma_rpy");
           sfc::print(zeta,std::cout,"zeta");
@@ -118,22 +130,37 @@ void GironaController::controlThread() {
 
 
         // Task 3: nominal joint configuration
+        const sfc::Vector<6> nominal_config = desired_joint_position;
+        const sfc::Vector<6> nominal_gain{1,1,1,1,1,1};
         sfc::Matrix<6, kSysDof> J_nominal{};
         sfc::Vector<6> sigma_nominal{};
-        const sfc::Vector<6> nominal_config = desired_joint_position;
+        sfc::Vector<6> task_vel_nominal{};
         sfc::buildNominalConfigTask(uvms_, nominal_config, J_nominal, sigma_nominal);
+        sfc::buildTaskVelocity<6>(sfc::Vector6{},sigma_nominal,nominal_gain,task_vel_nominal);
         zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_nominal, J_nominal, N, zeta, damping);
         #ifdef DEBUG_CONTROLLER
           sfc::print(zeta,std::cout,"velocity");
         #endif
 
         if(sfc::vectorNorm(uvms_.vehicleVelocity())< 0.01
-            && sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position)< 0.02
-            && std::fabs(uvms_.vehicleRpy()(1))< 0.03
+            && sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position)< 0.05
+            && std::fabs(uvms_.vehicleRpy()(1))< 0.01
+            && (ros::Time::now().toSec()-reset_time.toSec()) > 30 // big than 30 seconds
           )
           {
-                desired_joint_position = getRandomJointPosition();
-                sfc::print(desired_joint_position,std::cout,"desired_joint_position");
+            reset_time = ros::Time::now(); //reset time
+            desired_joint_position = getRandomJointPosition();
+            sfc::print(desired_joint_position,std::cout,"desired_joint_position");
+            logFrame(ros::Time::now().toSec(),
+                      uvms_.vehiclePosition(),
+                      uvms_.vehicleRpy(),
+                      uvms_.manipulatorPosition(),
+                      setpoints,
+                      zeta,
+                      sigma_xyz,
+                      sigma_rpy,
+                      sigma_nominal);
+            
           }else{
             std::cout << sfc::vectorNorm(uvms_.vehicleVelocity()) << " " 
             << sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position) << " " 
@@ -247,8 +274,8 @@ void GironaController::initializeController() {
   }
 
   ROS_INFO("Init PID controller");
-  sfc::Vector6 kp{50,50,50,0,30,20};
-  sfc::Vector6 ki{1,1,5,0,5,1};
+  sfc::Vector6 kp{50,50,50,0,40,20};
+  sfc::Vector6 ki{1,1,5,0,8,1};
   sfc::Vector6 kd{8,8,8,0,4,4};
   sfc::Vector6 i_sat{50,50,100,0,50,10};
   pid_.setGains(kp,ki,kd);
@@ -256,6 +283,46 @@ void GironaController::initializeController() {
 
   p_.setGains(sfc::Vector6{1,1,1,1,1,1});
 
+  const std::string log_dir = "/home/sia/girona_ws/src/sensorless_force_control/log/";
+  const std::time_t now = std::time(nullptr);
+  std::tm tm_now{};
+  localtime_r(&now, &tm_now);
+  std::ostringstream name;
+  name << "controller_data_" << std::put_time(&tm_now, "%Y%m%d%H%M%S") << ".csv";
+  const std::string csv_path = log_dir + name.str();
+
+  logger_ = sfc::Logger(csv_path);
+  logger_open_ = logger_.open();
+  if (!logger_open_) {
+    ROS_ERROR("Failed to open CSV file: %s", csv_path.c_str());
+  } else {
+    ROS_INFO("CSV log path: %s", csv_path.c_str());
+  }
+
+}
+
+void GironaController::logFrame(double stamp_sec,
+                                const sfc::Vector3& vehicle_xyz,
+                                const sfc::Vector3& vehicle_rpy,
+                                const sfc::Vector6& current_joint,
+                                const sfc::Vector6& setpoints,
+                                const sfc::Vector<12>& zeta,
+                                const sfc::Vector3& xyz_err,
+                                const sfc::Vector3& rpy_err,
+                                const sfc::Vector6& nominal_err) {
+  if (!logger_open_) {
+    return;
+  }
+  logger_.beginFrame(stamp_sec);
+  logger_.logVector("vehicle_xyz", vehicle_xyz);
+  logger_.logVector("vehicle_rpy", vehicle_rpy);
+  logger_.logVector("current_joint", current_joint);
+  logger_.logVector("setpoints", setpoints);
+  logger_.logVector("zeta", zeta);
+  logger_.logVector("xyz_err", xyz_err);
+  logger_.logVector("rpy_err", rpy_err);
+  logger_.logVector("nominal_err", nominal_err);
+  logger_.endFrame();
 }
 
 }  // namespace sfc

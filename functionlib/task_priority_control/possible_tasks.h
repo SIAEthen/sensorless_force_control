@@ -14,6 +14,18 @@
 #include "utilts/vector.h"
 
 namespace sfc {
+template<std::size_t taskDim>
+inline void buildTaskVelocity(const Vector<taskDim>& ref_vel,
+                              const Vector<taskDim>& dsigma,
+                              const Vector<taskDim>& gain,
+                              Vector<taskDim>& des_vel){
+  for(std::size_t i=0;i<taskDim;i++){ 
+    des_vel(i) = ref_vel(i) + gain(i)*dsigma(i);}
+}
+
+
+
+
 // Roll/pitch stabilization task (2xDof).
 template <std::size_t ArmDof,
           typename ManipulatorT = ManipulatorFromYAML<ArmDof>,
@@ -41,13 +53,12 @@ inline void buildRollPitchTask(const UvmsSingleArm<ArmDof,ManipulatorT,VehicleT>
   }
 }
 
-// Roll/pitch/yaw stabilization task (2xDof).
+// Roll/pitch/yaw stabilization task (3xDof).
 template <std::size_t ArmDof,
           typename ManipulatorT = ManipulatorFromYAML<ArmDof>,
           typename VehicleT = VehicleBase>
 inline void buildRollPitchYawTask(const UvmsSingleArm<ArmDof,ManipulatorT,VehicleT>& uvms,
                                   const Vector3& rpy_ref,
-                                  const Vector<3>& gain,
                                   Matrix<3, 6 + ArmDof>& J_out,
                                   Vector<3>& dsigma) {
   const Vector3 rpy = uvms.vehicleRpy();
@@ -55,9 +66,9 @@ inline void buildRollPitchYawTask(const UvmsSingleArm<ArmDof,ManipulatorT,Vehicl
     throw std::runtime_error("buildRollPitchYawTask: non-finite value");
   }
 
-  dsigma(0) = gain(0)*(rpy_ref(0) - rpy(0));
-  dsigma(1) = gain(1)*(rpy_ref(1) - rpy(1));
-  dsigma(2) = gain(2)*(rpy_ref(2) - rpy(2));
+  dsigma(0) = (rpy_ref(0) - rpy(0));
+  dsigma(1) = (rpy_ref(1) - rpy(1));
+  dsigma(2) = (rpy_ref(2) - rpy(2));
 
   J_out = Matrix<3, 6 + ArmDof>{};
   const Matrix3 j_inv = uvms.vehicle().J_ko_inv();
@@ -151,7 +162,6 @@ template <std::size_t ArmDof,
           typename VehicleT = VehicleBase>
 inline void buildVehiclePositionTask(const UvmsSingleArm<ArmDof,ManipulatorT,VehicleT>& uvms,
                                    const Vector<3>& pos_ref,
-                                   const Vector<3>& gain,
                                    Matrix<3, 6 + ArmDof>& J_out,
                                    Vector<3>& dsigma) {
   const Vector<3> current_pos = uvms.vehiclePosition();
@@ -163,7 +173,7 @@ inline void buildVehiclePositionTask(const UvmsSingleArm<ArmDof,ManipulatorT,Veh
   Matrix<3,3+ArmDof> zero_matrix{};
   J_out = sfc::hstack<3,3,3+ArmDof>(r_body_inertial.m,zero_matrix);
   for (std::size_t i = 0; i < ArmDof; ++i) {
-    dsigma(i) = gain(i)*(pos_ref(i)-current_pos(i));
+    dsigma(i) = (pos_ref(i)-current_pos(i));
   }
 }
 

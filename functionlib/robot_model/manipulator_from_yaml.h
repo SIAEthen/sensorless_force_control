@@ -160,8 +160,31 @@ class ManipulatorFromYAML : public ManipulatorBase<Dof> {
         t = t * detail::transformFromAxisTranslation(joint_axes_[i], this->state_.q[i]);
       }
     }
-    return t* this->toolTransformationFromT();
+    return t* this->toolTransformation();
   }
+
+  std::array<HomogeneousMatrix, Dof + 1> jointTransforms() const {
+    ensureInitialized();
+    std::array<HomogeneousMatrix, Dof + 1> Ts{};
+    HomogeneousMatrix t = HomogeneousMatrix::identity();
+
+    for (std::size_t i = 0; i < Dof; ++i) {
+      t = t * joint_transforms_[i];
+
+      const JointParam& param = joint_params_[i];
+      if (param.type == JointMotionType::kRevolute) {
+        const RotationMatrix r = detail::rotationFromAxisAngle(joint_axes_[i], this->state_.q[i]);
+        t = t * HomogeneousMatrix::fromRotationTranslation(r, Vector3{0.0, 0.0, 0.0});
+      } else if (param.type == JointMotionType::kPrismatic) {
+        t = t * detail::transformFromAxisTranslation(joint_axes_[i], this->state_.q[i]);
+      }
+      Ts[i] = t;
+    }
+    Ts[Dof] = t * this->toolTransformation();
+    return Ts;
+  }
+
+
 
   Jacobian jacobian() const override {
     ensureInitialized();
@@ -192,7 +215,7 @@ class ManipulatorFromYAML : public ManipulatorBase<Dof> {
       origins[i + 1] = t.translation();
     }
 
-    HomogeneousMatrix t_tip = t * this->toolTransformationFromT();
+    HomogeneousMatrix t_tip = t * this->toolTransformation();
     const Vector3 o_tip = t_tip.translation();
 
     Jacobian j{};

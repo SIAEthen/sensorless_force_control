@@ -5,6 +5,7 @@
 #include <thread>
 #include <vector>
 #include <cstdlib> // rand()
+#include "logger.h"
 #include <ros/ros.h>
 
 #include "functionlib/robot_model/uvms_single_arm.h"
@@ -67,7 +68,16 @@ class GironaController {
  private:
   void interfaceThread();
   void controlThread();
-  void initializeController();
+ void initializeController();
+  void logFrame(double stamp_sec,
+                const sfc::Vector3& vehicle_xyz,
+                const sfc::Vector3& vehicle_rpy,
+                const sfc::Vector6& current_joint,
+                const sfc::Vector6& setpoints,
+                const sfc::Vector<12>& zeta,
+                const sfc::Vector3& xyz_err,
+                const sfc::Vector3& rpy_err,
+                const sfc::Vector6& nominal_err);
 
   ros::NodeHandle nh_;
   ros::NodeHandle pnh_;
@@ -83,6 +93,8 @@ class GironaController {
   std::atomic<bool> running_{false};
   std::atomic<bool> control_running_{false};
   std::size_t n_thrusters_{6};
+  sfc::Logger logger_{""};
+  bool logger_open_{false};
 };
 
 }  // namespace sfc
