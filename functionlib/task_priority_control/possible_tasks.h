@@ -2,6 +2,7 @@
 #ifndef SFC_TASK_PRIORITY_CONTROL_POSSIBLE_TASKS_H_
 #define SFC_TASK_PRIORITY_CONTROL_POSSIBLE_TASKS_H_
 
+#include <algorithm>
 #include <cstddef>
 #include <stdexcept>
 
@@ -174,6 +175,82 @@ inline void buildVehiclePositionTask(const UvmsSingleArm<ArmDof,ManipulatorT,Veh
   J_out = sfc::hstack<3,3,3+ArmDof>(r_body_inertial.m,zero_matrix);
   for (std::size_t i = 0; i < ArmDof; ++i) {
     dsigma(i) = (pos_ref(i)-current_pos(i));
+  }
+}
+
+// Joint-limit velocity-damper task (n x (6+n)), QP-free approximation of inequality constraints.
+// It creates joint velocity references that:
+// 1) stay near zero in the activation zone [ds, rho], and
+// 2) push away from limits when distance < ds.
+// eta is the gain
+// rho is the threshold
+// ds is the smallest safety distance
+template <std::size_t ArmDof,
+          typename ManipulatorT = ManipulatorFromYAML<ArmDof>,
+          typename VehicleT = VehicleBase>
+inline void buildJointLimitDamperTask(
+    const UvmsSingleArm<ArmDof, ManipulatorT, VehicleT>& uvms,
+    const Vector<ArmDof>& q_min,
+    const Vector<ArmDof>& q_max,
+    Real rho,
+    Real ds,
+    Real gain,
+    Matrix<ArmDof, 6 + ArmDof>& J_out,
+    Vector<ArmDof>& dsigma) {
+  if (!q_min.isFinite() || !q_max.isFinite()) {
+    throw std::runtime_error("buildJointLimitDamperTask: non-finite limits");
+  }
+  if (!isFinite(rho) || !isFinite(ds) || !isFinite(gain)) {
+    throw std::runtime_error("buildJointLimitDamperTask: non-finite parameter");
+  }
+  if (rho <= zero() || ds < zero() || gain <= zero()) {
+    throw std::runtime_error("buildJointLimitDamperTask: require rho>0, 0<=ds<rho, gain>0");
+  }
+
+  const Vector<ArmDof> q_now = uvms.manipulatorPosition();
+  if (!q_now.isFinite()) {
+    throw std::runtime_error("buildJointLimitDamperTask: non-finite state");
+  }
+
+  J_out = Matrix<ArmDof, 6 + ArmDof>{};
+  for (std::size_t i = 0; i < ArmDof; ++i) {
+    if (q_min(i) >= q_max(i)) {
+      throw std::runtime_error("buildJointLimitDamperTask: require q_min(i) < q_max(i)");
+    }
+
+    const Real q = q_now(i);
+    const Real d_min = q - q_min(i);
+    const Real d_max = q_max(i) - q;
+
+    Real qdot_cmd = zero();
+    // If already out of bounds, command a recovery velocity back inside immediately.
+    if (q <= q_min(i)) {
+      qdot_cmd = gain * (q_min(i) - q + rho);
+      J_out(i, 6 + i) = static_cast<Real>(1.0);
+      dsigma(i) = qdot_cmd;
+      continue;
+    }
+    if (q >= q_max(i)) {
+      qdot_cmd = -gain * (q - q_max(i) + rho);
+      J_out(i, 6 + i) = static_cast<Real>(1.0);
+      dsigma(i) = qdot_cmd;
+      continue;
+    }
+
+    // if it is near low limits
+    if (d_min < rho) {
+      const Real qdot_cmd = gain * (rho-d_min + ds);  // dq_i >= lower_bound
+      J_out(i, 6 + i) = static_cast<Real>(1.0);
+      dsigma(i) = qdot_cmd;
+      
+    }
+
+    if (d_max < rho) {
+      const Real qdot_cmd = -gain * (rho-d_max + ds);  // dq_i <= upper_bound
+      J_out(i, 6 + i) = static_cast<Real>(1.0);
+      dsigma(i) = qdot_cmd;
+    }
+    
   }
 }
 

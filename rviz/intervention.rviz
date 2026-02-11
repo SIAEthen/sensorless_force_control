@@ -4,10 +4,11 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /World origin1
+        - /Robot axes1
         - /RobotModel1
         - /TF1/Frames1
         - /Camera1/Visibility1
+        - /World_ned1
       Splitter Ratio: 0.7293388247489929
     Tree Height: 371
   - Class: rviz/Views
@@ -43,13 +44,13 @@ Visualization Manager:
       Value: true
     - Alpha: 1
       Class: rviz/Axes
-      Enabled: true
+      Enabled: false
       Length: 1
       Name: World origin
       Radius: 0.07999999821186066
       Reference Frame: <Fixed Frame>
       Show Trail: false
-      Value: true
+      Value: false
     - Alpha: 1
       Class: rviz/Axes
       Enabled: true
@@ -317,6 +318,8 @@ Visualization Manager:
         BravoBase: true
         BravoLink1: true
         BravoLink2: true
+        BravoLink3: true
+        BravoLink4: true
         BravoLink5: true
         BravoLink6: true
         ECA EE: true
@@ -326,11 +329,13 @@ Visualization Manager:
         Multibeam Image: true
         Multibeam Pilot: true
         Pilot: true
+        ProbeTip: true
         Robot axes: true
         RobotModel: true
         TF: true
         Value: true
         World origin: false
+        World_ned: true
         altitude: false
       Zoom Factor: 1
     - Class: rviz/Marker
@@ -448,13 +453,13 @@ Visualization Manager:
       Value: false
     - Alpha: 1
       Class: rviz/Axes
-      Enabled: true
+      Enabled: false
       Length: 0.30000001192092896
       Name: BravoLink1
       Radius: 0.019999999552965164
       Reference Frame: girona1000/bravo/link1
       Show Trail: false
-      Value: true
+      Value: false
     - Alpha: 1
       Class: rviz/Axes
       Enabled: false
@@ -466,20 +471,56 @@ Visualization Manager:
       Value: false
     - Alpha: 1
       Class: rviz/Axes
-      Enabled: true
+      Enabled: false
       Length: 0.20000000298023224
       Name: BravoLink5
       Radius: 0.019999999552965164
       Reference Frame: girona1000/bravo/link5
       Show Trail: false
-      Value: true
+      Value: false
     - Alpha: 1
       Class: rviz/Axes
-      Enabled: true
+      Enabled: false
       Length: 0.4000000059604645
       Name: BravoLink6
       Radius: 0.019999999552965164
       Reference Frame: girona1000/bravo/link6
+      Show Trail: false
+      Value: false
+    - Alpha: 1
+      Class: rviz/Axes
+      Enabled: true
+      Length: 0.30000001192092896
+      Name: ProbeTip
+      Radius: 0.029999999329447746
+      Reference Frame: girona1000/bravo/cp_probe_tip_link
+      Show Trail: false
+      Value: true
+    - Alpha: 1
+      Class: rviz/Axes
+      Enabled: true
+      Length: 0.30000001192092896
+      Name: BravoLink3
+      Radius: 0.019999999552965164
+      Reference Frame: girona1000/bravo/link3
+      Show Trail: false
+      Value: true
+    - Alpha: 1
+      Class: rviz/Axes
+      Enabled: false
+      Length: 0.30000001192092896
+      Name: BravoLink4
+      Radius: 0.019999999552965164
+      Reference Frame: girona1000/bravo/link4
+      Show Trail: false
+      Value: false
+    - Alpha: 1
+      Class: rviz/Axes
+      Enabled: true
+      Length: 1
+      Name: World_ned
+      Radius: 0.10000000149011612
+      Reference Frame: world_ned
       Show Trail: false
       Value: true
   Enabled: true
@@ -496,7 +537,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 4.663703441619873
+      Distance: 7.496707916259766
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -504,17 +545,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 0.1381198763847351
-        Y: -0.5870161056518555
-        Z: -0.7486855387687683
+        X: -1.3422735929489136
+        Y: 0.7390974164009094
+        Z: -2.216808319091797
       Focal Shape Fixed Size: true
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.1897953301668167
+      Pitch: 0.4597928524017334
       Target Frame: girona500/base_link
-      Yaw: 0.7170272469520569
+      Yaw: 0.2670948803424835
     Saved:
       - Class: rviz/Orbit
         Distance: 5.901301860809326

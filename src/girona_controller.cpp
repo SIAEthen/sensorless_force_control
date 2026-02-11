@@ -4,6 +4,7 @@
 #include <utility>
 
 #include <yaml-cpp/yaml.h>
+#define DEBUG_CONTROLLER
 
 namespace sfc {
 
@@ -83,57 +84,96 @@ void GironaController::controlThread() {
         constexpr std::size_t kSysDof = 12;
         sfc::Matrix<kSysDof, kSysDof> N = sfc::identity<kSysDof>();
         sfc::Vector<kSysDof> zeta{};
-        const sfc::Real damping = static_cast<sfc::Real>(1e-3);
+        const sfc::Real damping = static_cast<sfc::Real>(1e-5);
 
-        // Task 1: roll/pitch stabilization
-        // sfc::Matrix<2, kSysDof> J_rp{};
-        // sfc::Vector<2> sigma_rp{};
-        // const sfc::Vector<2> rp_ref{0.0,0.0};
-        // sfc::buildRollPitchTask(uvms_, rp_ref, J_rp, sigma_rp);
-        // zeta = sfc::taskPrioritySolveStep<kSysDof, 2>(sigma_rp, J_rp, N, zeta, damping);
-        // Task 1.5: roll/pitch/yaw stabilization
-        const sfc::Vector<3> rpy_ref{0.0,0.0,0.5};
-        const sfc::Vector<3> rpy_gain{0.0,1.0,2.0};
-        sfc::Matrix<3, kSysDof> J_rpy{};
-        sfc::Vector<3> sigma_rpy{};
-        sfc::Vector<3> task_vel_rpy{};
-        sfc::buildRollPitchYawTask(uvms_, rpy_ref, J_rpy, sigma_rpy);
-        sfc::buildTaskVelocity<3>(sfc::Vector3{},sigma_rpy,rpy_gain,task_vel_rpy);
-        zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(task_vel_rpy, J_rpy, N, zeta, damping);
+        const sfc::Vector<6> q_min{-3*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
+        const sfc::Vector<6> q_max{ 3*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,      3.5*sfc::kPi4};
+        const sfc::Real rho = 0.2;
+        const sfc::Real ds = 0.2;
+        const sfc::Real gain = 0.1;
+        sfc::Matrix<6, kSysDof> J_jointlimits{};
+        sfc::Vector6 sigma_jointlimits{};
+        sfc::buildJointLimitDamperTask<6>(uvms_,q_min,q_max,rho,ds,gain,J_jointlimits,sigma_jointlimits);
+        zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_jointlimits, J_jointlimits, N, zeta, damping);
+        #ifdef DEBUG_CONTROLLER
+          sfc::print(sigma_jointlimits,std::cout,"sigma_jointlimits");
+          sfc::print(zeta,std::cout,"zeta");
+        #endif
+        
+        // // Task 1: roll/pitch stabilization
+        const sfc::Vector<2> ref_rp{0.0,0.0};
+        const sfc::Vector<2> gain_rp{0.0,1.0};
+        sfc::Matrix<2, kSysDof> J_rp{};
+        sfc::Vector<2> sigma_rp{};
+        sfc::Vector<2> task_vel_rp{};
+        sfc::buildRollPitchTask(uvms_, ref_rp, J_rp, sigma_rp);
+        sfc::buildTaskVelocity<2>(sfc::Vector<2>{},sigma_rp,gain_rp,task_vel_rp);
+        zeta = sfc::taskPrioritySolveStep<kSysDof, 2>(task_vel_rp, J_rp, N, zeta, damping);
+        #ifdef DEBUG_CONTROLLER
+          sfc::print(sigma_rp,std::cout,"sigma_rp");
+          sfc::print(zeta,std::cout,"zeta");
+        #endif
+
+        // // Task 1.5: roll/pitch/yaw stabilization
+        // const sfc::Vector<3> ref_rpy{0.0,0.0,sfc::kPi2};
+        // const sfc::Vector<3> gain_rpy{0.0,1.0,2.0};
+        // sfc::Matrix<3, kSysDof> J_rpy{};
+        // sfc::Vector<3> sigma_rpy{};
+        // sfc::Vector<3> task_vel_rpy{};
+        // sfc::buildRollPitchYawTask(uvms_, ref_rpy, J_rpy, sigma_rpy);
+        // sfc::buildTaskVelocity<3>(sfc::Vector3{},sigma_rpy,gain_rpy,task_vel_rpy);
+        // zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(task_vel_rpy, J_rpy, N, zeta, damping);
+        // #ifdef DEBUG_CONTROLLER
+        //   sfc::print(sigma_rpy,std::cout,"sigma_rpy");
+        //   sfc::print(zeta,std::cout,"zeta");
+        // #endif
 
         // Task 2: end-effector task (set your references)
+        const sfc::Vector3 ref_ee_pos{0,0,2.5};
+        // const sfc::Quaternion ref_ee_quat = uvms_.endEffectorQuaternionNed();
+        const sfc::Quaternion ref_ee_quat = sfc::Quaternion::fromRPY(-sfc::kPi2,-sfc::kPi2,0.0);
+        const sfc::Vector<6> gain_ee{1.0,1.0,1.0,10.0,10.0,10.0};
         sfc::Matrix<6, kSysDof> J_ee{};
         sfc::Vector<6> sigma_ee{};
-        const sfc::Vector3 pos_ref{0,0,3};
-        // const sfc::Quaternion q_ref = uvms_.endEffectorQuaternionNed();
-        const sfc::Quaternion q_ref = sfc::Quaternion::fromRPY(0,0.0,0);
-        sfc::buildEeTask(uvms_, pos_ref, q_ref, J_ee, sigma_ee);
+        sfc::Vector<6> task_vel_ee{};
+        sfc::buildEeTask(uvms_, ref_ee_pos, ref_ee_quat, J_ee, sigma_ee);
+        sfc::buildTaskVelocity<6>(sfc::Vector6{},sigma_ee,gain_ee,task_vel_ee);
         zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_ee, J_ee, N, zeta, damping);
-        sfc::print(sigma_ee,std::cout,"sigma_ee");
-        sfc::print(zeta,std::cout,"zeta");
+        #ifdef DEBUG_CONTROLLER
+          sfc::print(sigma_ee,std::cout,"sigma_ee");
+          sfc::print(zeta,std::cout,"zeta");
+        #endif
 
         // Task 3: nominal joint configuration
-        sfc::Matrix<3, kSysDof> J_nominal{};
-        sfc::Vector<3> sigma_nominal{};
-        const sfc::Vector<3> nominal_config = sfc::Vector<3>{};
-        sfc::buildNominal3ConfigTask(uvms_, nominal_config, J_nominal, sigma_nominal);
-        zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(sigma_nominal, J_nominal, N, zeta, damping);
-        sfc::print(zeta,std::cout,"velocity");
-
+        const sfc::Vector<6> nominal_config{};
+        const sfc::Vector<6> gain_nominal_config{1,1,1,1,1,1};
+        sfc::Matrix<6, kSysDof> J_nominal{};
+        sfc::Vector<6> sigma_nominal{};
+        sfc::Vector<6> task_vel_nominal{};
+        sfc::buildNominalConfigTask(uvms_, nominal_config, J_nominal, sigma_nominal);
+        sfc::buildTaskVelocity<6>(sfc::Vector6{},sigma_nominal,gain_nominal_config,task_vel_nominal);
+        zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_nominal, J_nominal, N, zeta, damping);
+        #ifdef DEBUG_CONTROLLER
+          sfc::print(sigma_nominal,std::cout,"sigma_nominal");
+          sfc::print(zeta,std::cout,"velocity");
+        #endif
 
         sfc::Vector6 nu_d{zeta(0),zeta(1),zeta(2),zeta(3),zeta(4),zeta(5)};
         sfc::Vector6 error = nu_d - uvms_.vehicleVelocity();
         sfc::Vector6 control_wrench = pid_.update(error,dt);
-        sfc::print(control_wrench,std::cout,"control wrench");
         sfc::Vector6 force = allocator_.allocate(control_wrench,0.0001);
         setpoints = convertForceToSetpoints(force);
-        sfc::print(setpoints,std::cout,"setpoints");
         joint_velocities(0) = zeta(6);
         joint_velocities(1) = zeta(7);
         joint_velocities(2) = zeta(8);
         joint_velocities(3) = zeta(9);
         joint_velocities(4) = zeta(10);
         joint_velocities(5) = zeta(11);
+
+        #ifdef DEBUG_CONTROLLER
+          sfc::print(control_wrench,std::cout,"control wrench");
+          sfc::print(setpoints,std::cout,"setpoints");
+        #endif
 
         interface_.sendThrusterSetpoints(setpoints);
         interface_.sendJointVelocityCommand(joint_velocities);
