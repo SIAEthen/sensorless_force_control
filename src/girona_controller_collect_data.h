@@ -77,7 +77,8 @@ class GironaController {
                 const sfc::Vector<12>& zeta,
                 const sfc::Vector3& xyz_err,
                 const sfc::Vector3& rpy_err,
-                const sfc::Vector6& nominal_err);
+                const sfc::Vector6& nominal_err,
+                const sfc::Vector6& wrench_sensor);
 
   ros::NodeHandle nh_;
   ros::NodeHandle pnh_;

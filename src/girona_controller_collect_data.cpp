@@ -86,6 +86,7 @@ void GironaController::controlThread() {
 
         uvms_.setVehicleState(interface_.vehicleState());
         uvms_.setManipulatorState(interface_.manipulatorState());
+        const sfc::Vector6 ft_sensor_feedback = interface_.wrench();
 
 
 
@@ -159,7 +160,8 @@ void GironaController::controlThread() {
                       zeta,
                       sigma_xyz,
                       sigma_rpy,
-                      sigma_nominal);
+                      sigma_nominal,
+                      ft_sensor_feedback);
             
           }else{
             std::cout << sfc::vectorNorm(uvms_.vehicleVelocity()) << " " 
@@ -309,7 +311,8 @@ void GironaController::logFrame(double stamp_sec,
                                 const sfc::Vector<12>& zeta,
                                 const sfc::Vector3& xyz_err,
                                 const sfc::Vector3& rpy_err,
-                                const sfc::Vector6& nominal_err) {
+                                const sfc::Vector6& nominal_err,
+                                const sfc::Vector6& wrench_sensor) {
   if (!logger_open_) {
     return;
   }
@@ -322,6 +325,7 @@ void GironaController::logFrame(double stamp_sec,
   logger_.logVector("xyz_err", xyz_err);
   logger_.logVector("rpy_err", rpy_err);
   logger_.logVector("nominal_err", nominal_err);
+  logger_.logVector("wrench_sensor", wrench_sensor);
   logger_.endFrame();
 }
 
