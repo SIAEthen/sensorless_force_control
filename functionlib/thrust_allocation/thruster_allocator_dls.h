@@ -32,6 +32,9 @@ class ThrusterAllocatorDls : public ThrusterAllocatorBase<Thrusters> {
     // print(pinv,std::cout,"pinv tcm");
     return clampVector(forces, this->min_force_, this->max_force_);
   }
+  Vector6 computeWrench(const Vector<Thrusters>& force ) const {
+    return this->allocation_*force;
+  }
 };
 
 }  // namespace sfc

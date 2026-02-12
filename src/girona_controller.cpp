@@ -4,7 +4,37 @@
 #include <utility>
 
 #include <yaml-cpp/yaml.h>
-#define DEBUG_CONTROLLER
+// #define DEBUG_CONTROLLER
+#define DEBUG_OBSERVER
+#define DEBUG_ROSTOPIC
+namespace {
+
+inline void publishWrench(ros::Publisher& pub,
+                          const sfc::Vector6& v,
+                          const ros::Time& stamp,
+                          const char* frame_id = "girona1000/base_link") {
+  geometry_msgs::WrenchStamped msg;
+  msg.header.stamp = stamp;
+  msg.header.frame_id = frame_id;
+  msg.wrench.force.x = v(0);
+  msg.wrench.force.y = v(1);
+  msg.wrench.force.z = v(2);
+  msg.wrench.torque.x = v(3);
+  msg.wrench.torque.y = v(4);
+  msg.wrench.torque.z = v(5);
+  pub.publish(msg);
+}
+
+inline void publishArray6(ros::Publisher& pub, const sfc::Vector6& v) {
+  std_msgs::Float64MultiArray msg;
+  msg.data.resize(6);
+  for (std::size_t i = 0; i < 6; ++i) {
+    msg.data[i] = v(i);
+  }
+  pub.publish(msg);
+}
+
+}  // namespace
 
 namespace sfc {
 
@@ -75,10 +105,10 @@ void GironaController::controlThread() {
         double dt = (now - last).toSec();
         last = now;
 
+        
         uvms_.setVehicleState(interface_.vehicleState());
         uvms_.setManipulatorState(interface_.manipulatorState());
-
-
+        const sfc::Vector6 sensor_feedback = interface_.wrench();
 
 
         constexpr std::size_t kSysDof = 12;
@@ -175,6 +205,45 @@ void GironaController::controlThread() {
           sfc::print(setpoints,std::cout,"setpoints");
         #endif
 
+        // observer 
+        const Vector6 nu = uvms_.vehicleVelocity();
+        const Vector3 nu_1{nu(0),nu(1),nu(2)};
+        const Vector3 nu_2{nu(3),nu(4),nu(5)};
+        const Vector3 acc = linear_acc_observer_.update(nu_1,dt);
+        const Vector6 gravity = sfc::regressor_girona1000(uvms_.vehicleRpy(),
+                                                        uvms_.manipulator(),
+                                                        uvms_.manipulatorBaseToVehicleTransform())
+                                * dynamic_parameters_;                        
+        const Vector6 thrusts = convertSetpointsToThrusts(setpoints);
+        const Vector6 computed_control_wrench = allocator_.computeWrench(thrusts);
+        const Vector6 gravity_minus_tau_v = gravity - computed_control_wrench;
+        const Vector6 tau_e = wrench_observer_.update(gravity_minus_tau_v,acc,nu_2,dt);
+        const Vector6 h_e_inertiaframe = sfc::pseudoInverseDls(uvms_.jacobian_first6collumns().transpose(),0.0001)  
+                            * tau_e;
+        #ifdef DEBUG_OBSERVER
+          sfc::print(gravity,std::cout,"gravity");
+          sfc::print(thrusts,std::cout,"thrusts");
+          sfc::print(computed_control_wrench,std::cout,"computed_control_wrench");
+          sfc::print(gravity_minus_tau_v,std::cout,"gravity_minus_tau_v");
+          sfc::print(tau_e,std::cout,"tau_e");
+          sfc::print(h_e_inertiaframe,std::cout,"h_e_inertiaframe");
+          sfc::print(sensor_feedback,std::cout,"sensor_feedback");
+        #endif
+        #ifdef DEBUG_ROSTOPIC
+          publishArray6(control_wrench_array_pub_, control_wrench);
+          publishArray6(force_array_pub_, force);
+          publishArray6(setpoints_array_pub_, setpoints);
+          publishArray6(nu_d_array_pub_, nu_d);
+          publishArray6(joint_velocities_array_pub_, joint_velocities);
+          publishArray6(error_array_pub_, error);
+          publishArray6(gravity_pub_, gravity);
+          publishArray6(thrusts_pub_, thrusts);
+          publishArray6(computed_control_wrench_pub_, computed_control_wrench);
+          publishArray6(gravity_minus_tau_v_pub_, gravity_minus_tau_v);
+          publishArray6(tau_e_pub_, tau_e);
+          publishArray6(h_e_inertiaframe_pub_, h_e_inertiaframe);
+          publishArray6(sensor_feedback_pub_, sensor_feedback);
+        #endif
         interface_.sendThrusterSetpoints(setpoints);
         interface_.sendJointVelocityCommand(joint_velocities);
         rate.sleep();
@@ -183,6 +252,29 @@ void GironaController::controlThread() {
 }
 
 void GironaController::initializeController() {
+#ifdef DEBUG_ROSTOPIC
+  control_wrench_array_pub_ =
+      nh_.advertise<std_msgs::Float64MultiArray>("debug/control_wrench", 10);
+  force_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/force", 10);
+  setpoints_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/setpoints", 10);
+  nu_d_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/nu_d", 10);
+  joint_velocities_array_pub_ =
+      nh_.advertise<std_msgs::Float64MultiArray>("debug/joint_velocities", 10);
+  error_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/error", 10);
+#endif
+
+  gravity_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/gravity", 10);
+  thrusts_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/thrusts", 10);
+  computed_control_wrench_pub_ =
+      nh_.advertise<std_msgs::Float64MultiArray>("debug/computed_control_wrench", 10);
+  gravity_minus_tau_v_pub_ =
+      nh_.advertise<std_msgs::Float64MultiArray>("debug/gravity_minus_tau_v", 10);
+  tau_e_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/tau_e", 10);
+  h_e_inertiaframe_pub_ =
+      nh_.advertise<std_msgs::Float64MultiArray>("debug/h_e_inertiaframe", 10);
+  sensor_feedback_pub_ =
+      nh_.advertise<std_msgs::Float64MultiArray>("debug/sensor_feedback", 10);
+
   // Placeholder for DH parameters and transforms; configure as needed by your arm.
   ROS_INFO("Initialize UVMS model from yaml file (obtained from URDF)");
   
@@ -270,6 +362,33 @@ void GironaController::initializeController() {
   sfc::Vector6 i_sat{50,50,100,10,50,10};
   pid_.setGains(kp,ki,kd);
   pid_.setIntegratorLimits(i_sat);
+
+  ROS_INFO("Init Accleration observer");
+  linear_acc_observer_.setCutoffHz(50);
+
+  ROS_INFO("Init Contact wrench observer");
+  wrench_observer_.setMass(153.121);
+  wrench_observer_.setInertia(sfc::Vector3{94.660, 103.801, 147.540});
+  wrench_observer_.setGains(sfc::Vector3{1.0,1.0,1.0},sfc::Vector3{1.0,1.0,1.0});
+
+
+  ROS_INFO("Init dynamic parameters from Yaml");
+  const std::string dyn_yaml_path =
+    "/home/sia/girona_ws/src/sensorless_force_control/config/control/model_optimized.yaml";
+  try {
+    YAML::Node root = YAML::LoadFile(dyn_yaml_path);
+    const YAML::Node dyn_node = root["vector28"];
+    if (!dyn_node || !dyn_node.IsSequence() || dyn_node.size() != 28) {
+      throw std::runtime_error("vector28 must be a sequence of 28 elements");
+    }
+    for (std::size_t i = 0; i < 28; ++i) {
+      dynamic_parameters_(i) = static_cast<sfc::Real>(dyn_node[i].as<double>());
+    }
+    sfc::print(dynamic_parameters_, std::cout, "dynamic_parameters");
+    ROS_INFO("Dynamic parameters loaded.");
+  } catch (const std::exception& ex) {
+    ROS_ERROR("Failed to load dynamic parameters: %s", ex.what());
+  }
 
 }
 

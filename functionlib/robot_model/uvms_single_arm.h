@@ -105,6 +105,8 @@ public:
     return Quaternion::fromRotationMatrix(r);
   }
 
+  
+
   UvmsJacobian jacobian() const {
     const RotationMatrix r_b_ned =
         vehicle_.getRotationMatrixBaseToInertial();
@@ -153,6 +155,40 @@ public:
         hstack(hstack(zeros<3, 3>(), r_b_ned_m), j_ori);
     return vstack(j_linear, j_angular);
   }
+
+  Matrix<6,6> jacobian_first6collumns() const {
+    const RotationMatrix r_b_ned =
+        vehicle_.getRotationMatrixBaseToInertial();
+    const Vector3 p_b_ned{vehicle_.position()[0],
+                          vehicle_.position()[1],
+                          vehicle_.position()[2]};
+
+    const Vector3 p_b0_b =
+        t_0_b_.translation();
+    const RotationMatrix r_0_b =
+        t_0_b_.rotation();
+
+    const RotationMatrix r_0_ned = r_b_ned * r_0_b;
+
+    const HomogeneousMatrix t_ee_ned = forwardKinematics();
+    const Vector3 p_ee_ned = t_ee_ned.translation();
+    const Vector3 p_b0_ned = r_b_ned.m * p_b0_b;
+    const Vector3 p_0ee_ned =
+        p_ee_ned - p_b_ned - p_b0_ned;
+
+    const Matrix3 r_b_ned_m = r_b_ned.m;
+    const Matrix3 r_0_ned_m = r_0_ned.m;
+    const Matrix3 S_p_b0_ned = skew(p_b0_ned);
+    const Matrix3 S_p_0ee_ned = skew(p_0ee_ned);
+    const Matrix3 jr_cross =
+        (S_p_b0_ned + S_p_0ee_ned) * r_b_ned_m;
+    const Matrix3 jr_linear = Matrix3{} - jr_cross;
+
+    const auto j_linear = hstack(r_b_ned_m, jr_linear);
+    const auto j_angular = hstack(zeros<3, 3>(), r_b_ned_m);
+    return vstack(j_linear, j_angular);
+  }
+
 
 private:
   Vehicle vehicle_;
