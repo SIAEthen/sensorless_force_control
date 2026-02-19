@@ -49,6 +49,7 @@ target_link_libraries(uvms_api_test
 add_executable(girona_controller
   src/girona_controller.cpp
   src/girona_interface.cpp
+  functionlib/stsm_control/super_twisting_smc.cpp
 )
 add_dependencies(girona_controller ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(girona_controller
@@ -92,5 +93,13 @@ add_executable(task_priority_solver_test
   test/task_priority_solver_test.cpp
 )
 target_link_libraries(task_priority_solver_test
+  ${catkin_LIBRARIES}
+)
+
+add_executable(stsmc_example
+  functionlib/stsm_control/stsmc_example.cpp
+  functionlib/stsm_control/super_twisting_smc.cpp
+)
+target_link_libraries(stsmc_example
   ${catkin_LIBRARIES}
 )

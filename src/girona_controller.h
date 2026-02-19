@@ -6,15 +6,18 @@
 #include <vector>
 #include <chrono>
 #include <utility>
+#include <mutex>
 
 #include <ros/ros.h>
 #include <geometry_msgs/WrenchStamped.h>
 #include <std_msgs/Float64MultiArray.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <dynamic_reconfigure/server.h>
+#include "sensorless_force_control/AdmittanceConfig.h"
 
-#include "functionlib/robot_model/uvms_single_arm.h"
+
 #include "girona_interface.h"
+#include "functionlib/robot_model/uvms_single_arm.h"
 #include "functionlib/utilts/print.h"
 #include "functionlib/thrust_allocation/thruster_allocator_dls.h"
 #include "functionlib/task_priority_control/possible_tasks.h"
@@ -25,17 +28,22 @@
 #include "functionlib/robot_model/uvms_regressor.h"
 #include "functionlib/filter/low_pass_filter.h"
 #include "functionlib/contact_control/quaternion_admittance_controller.h"
-#include "sensorless_force_control/AdmittanceConfig.h"
+#include  "functionlib/stsm_control/super_twisting_smc.h"
+
 
 #include <cmath>
 #include <yaml-cpp/yaml.h>
 
-// #define DEBUG_CONTROLLER
-#define DEBUG_OBSERVER
+#define DEBUG_CONTROLLER
+// #define DEBUG_OBSERVER
 #define DEBUG_ROSTOPIC
-#define USE_CONTROL
-#define DEBUG_JOYSTICK
+// #define DEBUG_JOYSTICK
 // #define DEBUG_ADMITTANCE
+
+#define USE_CONTROL
+// choose one dynamic controller to define
+#define STSMC
+// #define PID
 
 inline double thrust2setpoint(double f) {
   const double max_rpm = 1000.0;
@@ -146,7 +154,12 @@ class GironaController {
   GironaInterface interface_;
   UvmsType uvms_;
   sfc::ThrusterAllocatorDls<6> allocator_;
-  sfc::PidController<6> pid_;
+  #ifdef PID 
+    sfc::PidController<6> pid_;
+  #endif
+  #ifdef STSMC
+    sfc::SuperTwistingSmc stsmc_;
+  #endif
   sfc::ContactWrenchObserver wrench_observer_;
   sfc::AccelerationObserver<3> linear_acc_observer_;
   sfc::Vector<28> dynamic_parameters_;
@@ -179,6 +192,16 @@ class GironaController {
   ros::Publisher error_array_pub_;
   ros::Publisher sensor_calibrated_pub_;
   ros::Publisher sensor_calibrated_tiplink_pub_;
+
+  std::mutex kin_config_mutex_;
+  sfc::Real jointlimit_rho_{static_cast<sfc::Real>(0.2)};
+  sfc::Real jointlimit_ds_{static_cast<sfc::Real>(0.2)};
+  sfc::Real jointlimit_gain_{static_cast<sfc::Real>(0.1)};
+  sfc::Vector3 ref_rpy_{0.0, 0.0, sfc::kPi2 / 2.0};
+  sfc::Vector3 gain_rpy_{0.0, 1.0, 2.0};
+  sfc::Vector6 gain_ee_{1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+  sfc::Vector6 nominal_config_{0.0, 0.0, 0.0, 0.0, 0.0, 1.0};
+  sfc::Real allocator_damping_{static_cast<sfc::Real>(1e-4)};
 
   
 

@@ -58,6 +58,75 @@ void GironaController::admittanceReconfigCb(sensorless_force_control::Admittance
   stiffness(4) = static_cast<sfc::Real>(config.stiffness_5);
   stiffness(5) = static_cast<sfc::Real>(config.stiffness_6);
   admitance_controller_.setGains(mass, damping, stiffness);
+
+#ifdef STSMC
+  sfc::Vector6 stsmc_k1{};
+  sfc::Vector6 stsmc_k2{};
+  sfc::Vector6 stsmc_lambda{};
+  sfc::Vector6 stsmc_eps{};
+
+  stsmc_k1(0) = static_cast<sfc::Real>(config.stsmc_k1_1);
+  stsmc_k1(1) = static_cast<sfc::Real>(config.stsmc_k1_2);
+  stsmc_k1(2) = static_cast<sfc::Real>(config.stsmc_k1_3);
+  stsmc_k1(3) = static_cast<sfc::Real>(config.stsmc_k1_4);
+  stsmc_k1(4) = static_cast<sfc::Real>(config.stsmc_k1_5);
+  stsmc_k1(5) = static_cast<sfc::Real>(config.stsmc_k1_6);
+
+  stsmc_k2(0) = static_cast<sfc::Real>(config.stsmc_k2_1);
+  stsmc_k2(1) = static_cast<sfc::Real>(config.stsmc_k2_2);
+  stsmc_k2(2) = static_cast<sfc::Real>(config.stsmc_k2_3);
+  stsmc_k2(3) = static_cast<sfc::Real>(config.stsmc_k2_4);
+  stsmc_k2(4) = static_cast<sfc::Real>(config.stsmc_k2_5);
+  stsmc_k2(5) = static_cast<sfc::Real>(config.stsmc_k2_6);
+
+  stsmc_lambda(0) = static_cast<sfc::Real>(config.stsmc_lambda_1);
+  stsmc_lambda(1) = static_cast<sfc::Real>(config.stsmc_lambda_2);
+  stsmc_lambda(2) = static_cast<sfc::Real>(config.stsmc_lambda_3);
+  stsmc_lambda(3) = static_cast<sfc::Real>(config.stsmc_lambda_4);
+  stsmc_lambda(4) = static_cast<sfc::Real>(config.stsmc_lambda_5);
+  stsmc_lambda(5) = static_cast<sfc::Real>(config.stsmc_lambda_6);
+
+  stsmc_eps(0) = static_cast<sfc::Real>(config.stsmc_eps_1);
+  stsmc_eps(1) = static_cast<sfc::Real>(config.stsmc_eps_2);
+  stsmc_eps(2) = static_cast<sfc::Real>(config.stsmc_eps_3);
+  stsmc_eps(3) = static_cast<sfc::Real>(config.stsmc_eps_4);
+  stsmc_eps(4) = static_cast<sfc::Real>(config.stsmc_eps_5);
+  stsmc_eps(5) = static_cast<sfc::Real>(config.stsmc_eps_6);
+
+  stsmc_.setGains(stsmc_k1, stsmc_k2, stsmc_lambda);
+  stsmc_.setBoundaryLayer(stsmc_eps);
+#endif
+
+  {
+    std::lock_guard<std::mutex> lock(kin_config_mutex_);
+    jointlimit_rho_ = static_cast<sfc::Real>(config.jointlimit_rho);
+    jointlimit_ds_ = static_cast<sfc::Real>(config.jointlimit_ds);
+    jointlimit_gain_ = static_cast<sfc::Real>(config.jointlimit_gain);
+
+    ref_rpy_(0) = static_cast<sfc::Real>(config.ref_rpy_1);
+    ref_rpy_(1) = static_cast<sfc::Real>(config.ref_rpy_2);
+    ref_rpy_(2) = static_cast<sfc::Real>(config.ref_rpy_3);
+
+    gain_rpy_(0) = static_cast<sfc::Real>(config.gain_rpy_1);
+    gain_rpy_(1) = static_cast<sfc::Real>(config.gain_rpy_2);
+    gain_rpy_(2) = static_cast<sfc::Real>(config.gain_rpy_3);
+
+    gain_ee_(0) = static_cast<sfc::Real>(config.gain_ee_1);
+    gain_ee_(1) = static_cast<sfc::Real>(config.gain_ee_2);
+    gain_ee_(2) = static_cast<sfc::Real>(config.gain_ee_3);
+    gain_ee_(3) = static_cast<sfc::Real>(config.gain_ee_4);
+    gain_ee_(4) = static_cast<sfc::Real>(config.gain_ee_5);
+    gain_ee_(5) = static_cast<sfc::Real>(config.gain_ee_6);
+
+    nominal_config_(0) = static_cast<sfc::Real>(config.nominal_config_1);
+    nominal_config_(1) = static_cast<sfc::Real>(config.nominal_config_2);
+    nominal_config_(2) = static_cast<sfc::Real>(config.nominal_config_3);
+    nominal_config_(3) = static_cast<sfc::Real>(config.nominal_config_4);
+    nominal_config_(4) = static_cast<sfc::Real>(config.nominal_config_5);
+    nominal_config_(5) = static_cast<sfc::Real>(config.nominal_config_6);
+
+    allocator_damping_ = static_cast<sfc::Real>(config.allocator_damping);
+  }
 }
 
 GironaController::GironaController(ros::NodeHandle nh, ros::NodeHandle pnh)
@@ -114,9 +183,9 @@ void GironaController::controlThread() {
     ros::Time last = ros::Time::now();
 
     // variable for admittance control
-    sfc::Vector3 x_ee_d{0,3.5,2.0};
+    sfc::Vector3 x_ee_d{0,2.5,2.0};
     // sfc::Quaternion q_ee_d = sfc::Quaternion::fromRPY(-sfc::kPi2,-sfc::kPi2,0.0);
-    sfc::Quaternion q_ee_d = sfc::Quaternion{0,0,-0.707,-0.707};
+    sfc::Quaternion q_ee_d = sfc::Quaternion{0,0,-0.707,-0.707}; // point the panel
 
     // test the accuracy, touch the sheep surface.
     // sfc::Vector3 x_ee_d{0.165781, -4.08583, 3.0};
@@ -193,15 +262,31 @@ void GironaController::controlThread() {
         sfc::Matrix<kSysDof, kSysDof> N = sfc::identity<kSysDof>();
         sfc::Vector<kSysDof> zeta{};
         const sfc::Real damping = static_cast<sfc::Real>(1e-5);
+        sfc::Real jointlimit_rho = static_cast<sfc::Real>(0.2);
+        sfc::Real jointlimit_ds = static_cast<sfc::Real>(0.2);
+        sfc::Real jointlimit_gain = static_cast<sfc::Real>(0.1);
+        sfc::Vector3 ref_rpy{};
+        sfc::Vector3 gain_rpy{};
+        sfc::Vector6 gain_ee{};
+        sfc::Vector6 nominal_config{};
+        sfc::Real allocator_damping = static_cast<sfc::Real>(1e-4);
+        {
+          std::lock_guard<std::mutex> lock(kin_config_mutex_);
+          jointlimit_rho = jointlimit_rho_;
+          jointlimit_ds = jointlimit_ds_;
+          jointlimit_gain = jointlimit_gain_;
+          ref_rpy = ref_rpy_;
+          gain_rpy = gain_rpy_;
+          gain_ee = gain_ee_;
+          nominal_config = nominal_config_;
+          allocator_damping = allocator_damping_;
+        }
 
         const sfc::Vector<6> q_min{-3*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
         const sfc::Vector<6> q_max{ 3*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,      3.5*sfc::kPi4};
-        const sfc::Real rho = 0.2;
-        const sfc::Real ds = 0.2;
-        const sfc::Real gain = 0.1;
         sfc::Matrix<6, kSysDof> J_jointlimits{};
         sfc::Vector6 sigma_jointlimits{};
-        sfc::buildJointLimitDamperTask<6>(uvms_,q_min,q_max,rho,ds,gain,J_jointlimits,sigma_jointlimits);
+        sfc::buildJointLimitDamperTask<6>(uvms_,q_min,q_max,jointlimit_rho,jointlimit_ds,jointlimit_gain,J_jointlimits,sigma_jointlimits);
         zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_jointlimits, J_jointlimits, N, zeta, damping);
         #ifdef DEBUG_CONTROLLER
           sfc::print(sigma_jointlimits,std::cout,"sigma_jointlimits");
@@ -222,9 +307,7 @@ void GironaController::controlThread() {
         //   sfc::print(zeta,std::cout,"zeta");
         // #endif
 
-        // Task 1.5: roll/pitch/yaw stabilization
-        const sfc::Vector<3> ref_rpy{0.0,0.0,sfc::kPi2};
-        const sfc::Vector<3> gain_rpy{0.0,1.0,2.0};
+        // // Task 1.5: roll/pitch/yaw stabilization
         sfc::Matrix<3, kSysDof> J_rpy{};
         sfc::Vector<3> sigma_rpy{};
         sfc::Vector<3> task_vel_rpy{};
@@ -237,10 +320,9 @@ void GironaController::controlThread() {
         #endif
 
         // Task 2: end-effector task (set your references)
-        const sfc::Vector3 ref_ee_pos{0,0,2.5};
+        // const sfc::Vector3 ref_ee_pos{0,0,2.5};
         // const sfc::Quaternion ref_ee_quat = uvms_.endEffectorQuaternionNed();
-        const sfc::Quaternion ref_ee_quat = sfc::Quaternion::fromRPY(-sfc::kPi2,-sfc::kPi2,0.0);
-        const sfc::Vector<6> gain_ee{1.0,1.0,1.0,10.0,10.0,10.0};
+        // const sfc::Quaternion ref_ee_quat = sfc::Quaternion::fromRPY(-sfc::kPi2,-sfc::kPi2,0.0);
         sfc::Matrix<6, kSysDof> J_ee{};
         sfc::Vector<6> sigma_ee{};
         sfc::Vector<6> task_vel_ee{};
@@ -255,7 +337,6 @@ void GironaController::controlThread() {
         #endif
 
         // Task 3: nominal joint configuration
-        const sfc::Vector<6> nominal_config{0,0,0,0,0,1.0};
         const sfc::Vector<6> gain_nominal_config{10,10,10,10,10,10};
         sfc::Matrix<6, kSysDof> J_nominal{};
         sfc::Vector<6> sigma_nominal{};
@@ -270,8 +351,19 @@ void GironaController::controlThread() {
 
         sfc::Vector6 nu_d{zeta(0),zeta(1),zeta(2),zeta(3),zeta(4),zeta(5)};
         sfc::Vector6 error = nu_d - uvms_.vehicleVelocity();
-        sfc::Vector6 control_wrench = pid_.update(error,dt);
-        sfc::Vector6 force = allocator_.allocate(control_wrench,0.0001);
+        const Vector6 gravity = sfc::regressor_girona1000(uvms_.vehicleRpy(),
+                                                        uvms_.manipulator(),
+                                                        uvms_.manipulatorBaseToVehicleTransform())
+                                * dynamic_parameters_;   
+        #ifdef PID
+          sfc::Vector6 control_wrench = pid_.update(error,dt);
+        #endif
+        #ifdef STSMC
+          // sfc::Vector6 control_wrench = stsmc_.update(error,Vector6{},gravity,dt);
+          sfc::Vector6 control_wrench = stsmc_.update(error,gravity,dt);
+          // sfc::Vector6 control_wrench = stsmc_.update(error,dt);
+        #endif
+        sfc::Vector6 force = allocator_.allocate(control_wrench,allocator_damping);
         setpoints = convertForceToSetpoints(force);
         joint_velocities(0) = zeta(6);
         joint_velocities(1) = zeta(7);
@@ -307,10 +399,7 @@ void GironaController::controlThread() {
         const Vector3 nu_1{nu(0),nu(1),nu(2)};
         const Vector3 nu_2{nu(3),nu(4),nu(5)};
         const Vector3 acc = linear_acc_observer_.update(nu_1,dt);
-        const Vector6 gravity = sfc::regressor_girona1000(uvms_.vehicleRpy(),
-                                                        uvms_.manipulator(),
-                                                        uvms_.manipulatorBaseToVehicleTransform())
-                                * dynamic_parameters_;                        
+                             
         const Vector6 thrusts = convertSetpointsToThrusts(setpoints);
         const Vector6 computed_control_wrench = allocator_.computeWrench(thrusts);
         const Vector6 gravity_minus_tau_v = gravity - computed_control_wrench;
@@ -403,7 +492,6 @@ void GironaController::initializeController() {
   joint_velocities_array_pub_ =
       nh_.advertise<std_msgs::Float64MultiArray>("debug/joint_velocities", 10);
   error_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/error", 10);
-#endif
 
   gravity_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/gravity", 10);
   thrusts_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/thrusts", 10);
@@ -424,7 +512,7 @@ void GironaController::initializeController() {
       nh_.advertise<std_msgs::Float64MultiArray>("debug/sensor_calibrated", 10);
   sensor_calibrated_tiplink_pub_ =
       nh_.advertise<std_msgs::Float64MultiArray>("debug/sensor_calibrated_tiplink", 10);
-
+#endif
   // Placeholder for DH parameters and transforms; configure as needed by your arm.
   ROS_INFO("Initialize UVMS model from yaml file (obtained from URDF)");
   
@@ -504,14 +592,24 @@ void GironaController::initializeController() {
   } catch (const std::exception& ex) {
     ROS_ERROR("Failed to load TCM: %s", ex.what());
   }
+  #ifdef PID 
+    ROS_INFO("Init PID controller");
+    sfc::Vector6 kp{50,50,50,20,30,20};
+    sfc::Vector6 ki{1,1,5,1,5,1};
+    sfc::Vector6 kd{8,8,8,2,4,4};
+    sfc::Vector6 i_sat{50,50,100,10,50,10};
+    pid_.setGains(kp,ki,kd);
+    pid_.setIntegratorLimits(i_sat);
+  #endif
 
-  ROS_INFO("Init PID controller");
-  sfc::Vector6 kp{50,50,50,20,30,20};
-  sfc::Vector6 ki{1,1,5,1,5,1};
-  sfc::Vector6 kd{8,8,8,2,4,4};
-  sfc::Vector6 i_sat{50,50,100,10,50,10};
-  pid_.setGains(kp,ki,kd);
-  pid_.setIntegratorLimits(i_sat);
+  #ifdef STSMC
+    ROS_INFO("Init stsmc controller");
+    stsmc_.setGains(Vector6{10.0, 10.0, 10.0, 10.0, 10.0, 10.0},
+                Vector6{2.0, 2.0, 2.0, 2.0, 2.0, 2.0},
+                Vector6{5.0, 5.0, 5.0, 5.0, 5.0, 5.0});
+    stsmc_.setBoundaryLayer(Vector6{2.0,2.0,2.0,2.0,2.0,2.0});
+    stsmc_.reset();
+  #endif
 
   ROS_INFO("Init Accleration observer");
   linear_acc_observer_.setCutoffHz(50);
