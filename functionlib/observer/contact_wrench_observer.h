@@ -79,6 +79,7 @@ class ContactWrenchObserver {
   // a      acceleration of the vehicle
   // omega  angular velocity of the vehicle
   // dt     time
+  // M_v d\nu + phi theta = tau_v + tau_e, below we estimate tau_e
   Vector6 update(const Vector6& f,
                  const Vector3& a,
                  const Vector3& omega,

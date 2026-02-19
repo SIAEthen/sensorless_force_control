@@ -1,0 +1,65 @@
+<launch>
+  <!-- Optional namespace -->
+  <arg name="robot_name" default="girona1000xh" />
+
+  <!-- Whether to launch joy_node in this launch -->
+  <arg name="enable_joy_node" default="true" />
+  <arg name="joystick_device" default="/dev/input/js0" />
+  <arg name="joy_deadzone" default="0.05" />
+  <arg name="joy_autorepeat_rate" default="10.0" />
+
+  <!-- JoystickBridge topics -->
+  <arg name="joy_input_topic" default="joy" />
+  <arg name="joy_raw_topic" default="joystick/raw" />
+  <arg name="axes_topic" default="joystick/axes" />
+  <arg name="buttons_topic" default="joystick/buttons" />
+  <arg name="velocity_topic" default="joystick/velocity_cmd" />
+  <arg name="queue_size" default="10" />
+
+  <!-- Axis mapping -->
+  <arg name="axis_x" default="1" />
+  <arg name="axis_y" default="0" />
+  <arg name="axis_z" default="4" />
+  <arg name="axis_rx" default="6" />
+  <arg name="axis_ry" default="7" />
+  <arg name="axis_rz" default="3" />
+
+  <!-- Scale factors -->
+  <arg name="scale_x" default="0.1" />
+  <arg name="scale_y" default="-0.1" />
+  <arg name="scale_z" default="-0.1" />
+  <arg name="scale_rx" default="0.05" />
+  <arg name="scale_ry" default="0.05" />
+  <arg name="scale_rz" default="0.05" />
+
+  <group ns="$(arg robot_name)">
+    <node if="$(arg enable_joy_node)" name="joystick" pkg="joy" type="joy_node" output="screen">
+      <param name="dev" value="$(arg joystick_device)" />
+      <param name="deadzone" value="$(arg joy_deadzone)" />
+      <param name="autorepeat_rate" value="$(arg joy_autorepeat_rate)" />
+    </node>
+
+    <node name="joystick_bridge" pkg="sensorless_force_control" type="joystick_bridge" output="screen">
+      <param name="joy_input_topic" value="$(arg joy_input_topic)" />
+      <param name="joy_raw_topic" value="$(arg joy_raw_topic)" />
+      <param name="axes_topic" value="$(arg axes_topic)" />
+      <param name="buttons_topic" value="$(arg buttons_topic)" />
+      <param name="velocity_topic" value="$(arg velocity_topic)" />
+      <param name="queue_size" value="$(arg queue_size)" />
+
+      <param name="axis_x" value="$(arg axis_x)" />
+      <param name="axis_y" value="$(arg axis_y)" />
+      <param name="axis_z" value="$(arg axis_z)" />
+      <param name="axis_rx" value="$(arg axis_rx)" />
+      <param name="axis_ry" value="$(arg axis_ry)" />
+      <param name="axis_rz" value="$(arg axis_rz)" />
+
+      <param name="scale_x" value="$(arg scale_x)" />
+      <param name="scale_y" value="$(arg scale_y)" />
+      <param name="scale_z" value="$(arg scale_z)" />
+      <param name="scale_rx" value="$(arg scale_rx)" />
+      <param name="scale_ry" value="$(arg scale_ry)" />
+      <param name="scale_rz" value="$(arg scale_rz)" />
+    </node>
+  </group>
+</launch>

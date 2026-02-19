@@ -57,6 +57,7 @@ struct HomogeneousMatrix {
   RotationMatrix rotation() const;
   Vector3 translation() const;
   Vector3 zAxis() const;
+  HomogeneousMatrix inverse() const;
 };
 
 struct Quaternion {
@@ -278,6 +279,14 @@ inline Vector3 HomogeneousMatrix::zAxis() const {
   z(1) = m(1, 2);
   z(2) = m(2, 2);
   return z;
+}
+inline HomogeneousMatrix HomogeneousMatrix::inverse() const {
+  if (!isFinite()) {
+    throw std::runtime_error("HomogeneousMatrix contains non-finite value");
+  }
+  const RotationMatrix r_inv = rotation().transpose();
+  const Vector3 p_inv = (r_inv * translation()) * static_cast<sfc::Real>(-1.0);
+  return HomogeneousMatrix::fromRotationTranslation(r_inv, p_inv);
 }
 
 inline Quaternion Quaternion::identity() { return Quaternion{1.0, 0.0, 0.0, 0.0}; }

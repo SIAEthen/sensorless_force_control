@@ -98,6 +98,11 @@ public:
     return vehicle_.forwardKinematics() * t_0_b_ * manipulator_.forwardKinematics();
   }
 
+  // Returns T_ee_body. For UVMS, body frame is frd.
+  HomogeneousMatrix forwardKinematicsBodyFrame() const {
+    return t_0_b_ * manipulator_.forwardKinematics();
+  }
+
   Vector3 endEffectorPositionNed() const { return forwardKinematics().translation(); }
 
   Quaternion endEffectorQuaternionNed() const {

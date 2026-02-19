@@ -8,6 +8,7 @@ endif()
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
 
 find_package(catkin REQUIRED
+  dynamic_reconfigure
   roscpp
   rospy
   nav_msgs
@@ -15,11 +16,18 @@ find_package(catkin REQUIRED
   sensor_msgs
   std_msgs
   cola2_msgs
+  tf2
+  tf2_ros
+  tf2_geometry_msgs
+)
+
+generate_dynamic_reconfigure_options(
+  cfg/Admittance.cfg
 )
 
 catkin_package(
   INCLUDE_DIRS
-  CATKIN_DEPENDS roscpp rospy nav_msgs geometry_msgs sensor_msgs std_msgs cola2_msgs
+  CATKIN_DEPENDS dynamic_reconfigure roscpp rospy nav_msgs geometry_msgs sensor_msgs std_msgs cola2_msgs tf2 tf2_ros tf2_geometry_msgs
   DEPENDS yaml-cpp
 )
 
@@ -42,6 +50,7 @@ add_executable(girona_controller
   src/girona_controller.cpp
   src/girona_interface.cpp
 )
+add_dependencies(girona_controller ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(girona_controller
   ${catkin_LIBRARIES}
   yaml-cpp
@@ -61,6 +70,13 @@ add_executable(joint_cmd_watchdog
   src/joint_cmd_watchdog.cpp
 )
 target_link_libraries(joint_cmd_watchdog
+  ${catkin_LIBRARIES}
+)
+
+add_executable(joystick_bridge
+  src/joystick_bridge.cpp
+)
+target_link_libraries(joystick_bridge
   ${catkin_LIBRARIES}
 )
 
