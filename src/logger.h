@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "functionlib/utilts/rotation.h"
 #include "functionlib/utilts/vector.h"
 
 namespace sfc {
@@ -52,6 +53,10 @@ class Logger {
       out[i] = values(i);
     }
     current_[name] = std::move(out);
+  }
+
+  void logVector(const std::string& name, const sfc::Quaternion& q) {
+    current_[name] = {q.w, q.x, q.y, q.z};
   }
 
   void endFrame() {

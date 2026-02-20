@@ -126,6 +126,13 @@ void GironaController::admittanceReconfigCb(sensorless_force_control::Admittance
     nominal_config_(5) = static_cast<sfc::Real>(config.nominal_config_6);
 
     allocator_damping_ = static_cast<sfc::Real>(config.allocator_damping);
+    enable_thruster_command_ = config.enable_thruster_command;
+    enable_arm_command_ = config.enable_arm_command;
+    enable_logging_ = config.enable_logging;
+    enable_jointlimits_task_ = config.enable_jointlimits_task;
+    enable_sigma_rpy_task_ = config.enable_sigma_rpy_task;
+    enable_ee_task_ = config.enable_ee_task;
+    enable_nominalconfiguration_task_ = config.enable_nominalconfiguration_task;
   }
 }
 
@@ -165,6 +172,10 @@ void GironaController::stop() {
   if (control_thread_.joinable()) {
     control_thread_.join();
   }
+    if (logger_open_) {
+    logger_.close();
+    logger_open_ = false;
+  }
   
 }
 
@@ -179,7 +190,7 @@ void GironaController::controlThread() {
     ros::Duration(1.0).sleep();
     ros::Rate rate(10.0);
     sfc::Vector6 setpoints{};
-    sfc::Vector6 joint_velocities{};
+    sfc::Vector6 joint_velocity_desired{};
     ros::Time last = ros::Time::now();
 
     // variable for admittance control
@@ -270,6 +281,13 @@ void GironaController::controlThread() {
         sfc::Vector6 gain_ee{};
         sfc::Vector6 nominal_config{};
         sfc::Real allocator_damping = static_cast<sfc::Real>(1e-4);
+        bool enable_thruster_command = true;
+        bool enable_arm_command = true;
+        bool enable_logging = true;
+        bool enable_jointlimits_task = true;
+        bool enable_sigma_rpy_task = true;
+        bool enable_ee_task = true;
+        bool enable_nominalconfiguration_task = true;
         {
           std::lock_guard<std::mutex> lock(kin_config_mutex_);
           jointlimit_rho = jointlimit_rho_;
@@ -280,14 +298,27 @@ void GironaController::controlThread() {
           gain_ee = gain_ee_;
           nominal_config = nominal_config_;
           allocator_damping = allocator_damping_;
+          enable_thruster_command = enable_thruster_command_;
+          enable_arm_command = enable_arm_command_;
+          enable_logging = enable_logging_;
+          enable_jointlimits_task = enable_jointlimits_task_;
+          enable_sigma_rpy_task = enable_sigma_rpy_task_;
+          enable_ee_task = enable_ee_task_;
+          enable_nominalconfiguration_task = enable_nominalconfiguration_task_;
         }
 
-        const sfc::Vector<6> q_min{-3*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
-        const sfc::Vector<6> q_max{ 3*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,      3.5*sfc::kPi4};
+        // const sfc::Vector<6> q_min{-3*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
+        // const sfc::Vector<6> q_max{ 3*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,      3.5*sfc::kPi4};
+        const sfc::Vector<6> q_min{-1.5*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
+        const sfc::Vector<6> q_max{ 1.5*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,      3.5*sfc::kPi4};
+        
+        
         sfc::Matrix<6, kSysDof> J_jointlimits{};
         sfc::Vector6 sigma_jointlimits{};
-        sfc::buildJointLimitDamperTask<6>(uvms_,q_min,q_max,jointlimit_rho,jointlimit_ds,jointlimit_gain,J_jointlimits,sigma_jointlimits);
-        zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_jointlimits, J_jointlimits, N, zeta, damping);
+        if (enable_jointlimits_task) {
+          sfc::buildJointLimitDamperTask<6>(uvms_,q_min,q_max,jointlimit_rho,jointlimit_ds,jointlimit_gain,J_jointlimits,sigma_jointlimits);
+          zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_jointlimits, J_jointlimits, N, zeta, damping);
+        }
         #ifdef DEBUG_CONTROLLER
           sfc::print(sigma_jointlimits,std::cout,"sigma_jointlimits");
           sfc::print(zeta,std::cout,"zeta");
@@ -311,9 +342,11 @@ void GironaController::controlThread() {
         sfc::Matrix<3, kSysDof> J_rpy{};
         sfc::Vector<3> sigma_rpy{};
         sfc::Vector<3> task_vel_rpy{};
-        sfc::buildRollPitchYawTask(uvms_, ref_rpy, J_rpy, sigma_rpy);
-        sfc::buildTaskVelocity<3>(sfc::Vector3{},sigma_rpy,gain_rpy,task_vel_rpy);
-        zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(task_vel_rpy, J_rpy, N, zeta, damping);
+        if (enable_sigma_rpy_task) {
+          sfc::buildRollPitchYawTask(uvms_, ref_rpy, J_rpy, sigma_rpy);
+          sfc::buildTaskVelocity<3>(sfc::Vector3{},sigma_rpy,gain_rpy,task_vel_rpy);
+          zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(task_vel_rpy, J_rpy, N, zeta, damping);
+        }
         #ifdef DEBUG_CONTROLLER
           sfc::print(sigma_rpy,std::cout,"sigma_rpy");
           sfc::print(zeta,std::cout,"zeta");
@@ -327,10 +360,12 @@ void GironaController::controlThread() {
         sfc::Vector<6> sigma_ee{};
         sfc::Vector<6> task_vel_ee{};
         // build ee task with desired quaternion or referenced quaternion
-        sfc::buildEeTask(uvms_, x_ee_r, q_ee_d, J_ee, sigma_ee);
-        // sfc::buildTaskVelocity<6>(v_ee_r,sigma_ee,gain_ee,task_vel_ee);
-        sfc::buildTaskVelocity<6>(Vector6{},sigma_ee,gain_ee,task_vel_ee);
-        zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_ee, J_ee, N, zeta, damping);
+        if (enable_ee_task) {
+          sfc::buildEeTask(uvms_, x_ee_r, q_ee_d, J_ee, sigma_ee);
+          // sfc::buildTaskVelocity<6>(v_ee_r,sigma_ee,gain_ee,task_vel_ee);
+          sfc::buildTaskVelocity<6>(Vector6{},sigma_ee,gain_ee,task_vel_ee);
+          zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_ee, J_ee, N, zeta, damping);
+        }
         #ifdef DEBUG_CONTROLLER
           sfc::print(sigma_ee,std::cout,"sigma_ee");
           sfc::print(zeta,std::cout,"zeta");
@@ -341,16 +376,18 @@ void GironaController::controlThread() {
         sfc::Matrix<6, kSysDof> J_nominal{};
         sfc::Vector<6> sigma_nominal{};
         sfc::Vector<6> task_vel_nominal{};
-        sfc::buildNominalConfigTask(uvms_, nominal_config, J_nominal, sigma_nominal);
-        sfc::buildTaskVelocity<6>(sfc::Vector6{},sigma_nominal,gain_nominal_config,task_vel_nominal);
-        zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_nominal, J_nominal, N, zeta, damping);
+        if (enable_nominalconfiguration_task) {
+          sfc::buildNominalConfigTask(uvms_, nominal_config, J_nominal, sigma_nominal);
+          sfc::buildTaskVelocity<6>(sfc::Vector6{},sigma_nominal,gain_nominal_config,task_vel_nominal);
+          zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_nominal, J_nominal, N, zeta, damping);
+        }
         #ifdef DEBUG_CONTROLLER
           sfc::print(sigma_nominal,std::cout,"sigma_nominal");
           sfc::print(zeta,std::cout,"velocity");
         #endif
 
         sfc::Vector6 nu_d{zeta(0),zeta(1),zeta(2),zeta(3),zeta(4),zeta(5)};
-        sfc::Vector6 error = nu_d - uvms_.vehicleVelocity();
+        sfc::Vector6 nu_error = nu_d - uvms_.vehicleVelocity();
         const Vector6 gravity = sfc::regressor_girona1000(uvms_.vehicleRpy(),
                                                         uvms_.manipulator(),
                                                         uvms_.manipulatorBaseToVehicleTransform())
@@ -360,17 +397,17 @@ void GironaController::controlThread() {
         #endif
         #ifdef STSMC
           // sfc::Vector6 control_wrench = stsmc_.update(error,Vector6{},gravity,dt);
-          sfc::Vector6 control_wrench = stsmc_.update(error,gravity,dt);
+          sfc::Vector6 control_wrench = stsmc_.update(nu_error,gravity,dt);
           // sfc::Vector6 control_wrench = stsmc_.update(error,dt);
         #endif
-        sfc::Vector6 force = allocator_.allocate(control_wrench,allocator_damping);
-        setpoints = convertForceToSetpoints(force);
-        joint_velocities(0) = zeta(6);
-        joint_velocities(1) = zeta(7);
-        joint_velocities(2) = zeta(8);
-        joint_velocities(3) = zeta(9);
-        joint_velocities(4) = zeta(10);
-        joint_velocities(5) = zeta(11);
+        sfc::Vector6 thruster_force = allocator_.allocate(control_wrench,allocator_damping);
+        setpoints = convertForceToSetpoints(thruster_force);
+        joint_velocity_desired(0) = zeta(6);
+        joint_velocity_desired(1) = zeta(7);
+        joint_velocity_desired(2) = zeta(8);
+        joint_velocity_desired(3) = zeta(9);
+        joint_velocity_desired(4) = zeta(10);
+        joint_velocity_desired(5) = zeta(11);
 
         #ifdef DEBUG_CONTROLLER
           sfc::print(control_wrench,std::cout,"control wrench");
@@ -449,11 +486,11 @@ void GironaController::controlThread() {
 
         #ifdef DEBUG_ROSTOPIC
           publishArray6(control_wrench_array_pub_, control_wrench);
-          publishArray6(force_array_pub_, force);
+          publishArray6(force_array_pub_, thruster_force);
           publishArray6(setpoints_array_pub_, setpoints);
           publishArray6(nu_d_array_pub_, nu_d);
-          publishArray6(joint_velocities_array_pub_, joint_velocities);
-          publishArray6(error_array_pub_, error);
+          publishArray6(joint_velocities_array_pub_, joint_velocity_desired);
+          publishArray6(error_array_pub_, nu_error);
           publishArray6(gravity_pub_, gravity);
           publishArray6(thrusts_pub_, thrusts);
           publishArray6(computed_control_wrench_pub_, computed_control_wrench);
@@ -469,8 +506,68 @@ void GironaController::controlThread() {
         #endif
 
         #ifdef USE_CONTROL
-          interface_.sendThrusterSetpoints(setpoints);
-          interface_.sendJointVelocityCommand(joint_velocities);
+          if (enable_thruster_command) {
+            interface_.sendThrusterSetpoints(setpoints);
+          }
+          if (enable_arm_command) {
+            interface_.sendJointVelocityCommand(joint_velocity_desired);
+          }
+        #endif
+
+        #ifdef USE_LOG
+          if (enable_logging && logger_open_) {
+            logger_.beginFrame(now.toSec());
+
+            // current state, velocity, ee position
+            logger_.logVector("nu", nu);
+            logger_.logVector("acc", acc);
+            logger_.logVector("eta1", uvms_.vehiclePosition());
+            logger_.logVector("eta2", uvms_.vehicleRpy());
+            logger_.logVector("joint_position", uvms_.manipulatorPosition());
+            logger_.logVector("joint_velocity", uvms_.manipulatorVelocity());
+            logger_.logVector("x_ee", uvms_.endEffectorPositionNed());
+            logger_.logVector("q_ee", uvms_.endEffectorQuaternionNed());
+
+            // cmd by joystick
+            logger_.logVector("velcmd", velcmd);
+            // cmd raw
+            logger_.logVector("x_ee_d", x_ee_d);
+            logger_.logVector("q_ee_d", q_ee_d);
+            // cmd filtered by admittance controller
+            logger_.logVector("x_ee_r", x_ee_r);
+            logger_.logVector("q_ee_r", q_ee_r);
+            logger_.logVector("v_ee_r", v_ee_r);
+
+            // kinematics state variable
+            logger_.logVector("sigma_jointlimits", sigma_jointlimits);
+            logger_.logVector("sigma_rpy", sigma_rpy);
+            logger_.logVector("sigma_ee", sigma_ee);
+            logger_.logVector("sigma_nominal", sigma_nominal);
+            // kinematics outputs
+            logger_.logVector("nu_d", nu_d);
+            logger_.logVector("dq_d", joint_velocity_desired);
+
+            // dynamic controller
+            logger_.logVector("nu_error", nu_error);
+            logger_.logVector("thruster_force", thruster_force);
+            logger_.logVector("setpoints", setpoints);
+            logger_.logVector("control_wrench", control_wrench);
+
+            // FT sensor outputs
+            logger_.logVector("sensor_feedback_filtered", sensor_feedback_filtered);
+            logger_.logVector("sensor_feedback_calibrated", sensor_feedback_calibrated);
+            logger_.logVector("sensor_feedback_calibrated_ontiplink", sensor_feedback_calibrated_ontiplink);
+
+            // he estimated by observer
+            logger_.logVector("computed_control_wrench", computed_control_wrench);
+            logger_.logVector("gravity_minus_tau_v", gravity_minus_tau_v);
+            logger_.logVector("tau_e", tau_e);
+            logger_.logVector("h_e_inertiaframe", h_e_inertiaframe);
+            logger_.logVector("h_e_tipframe", h_e_tipframe);
+
+            logger_.endFrame();
+            
+          }
         #endif
         
         // fix rate god tool
@@ -483,36 +580,36 @@ void GironaController::initializeController() {
   joycmd_sub_ = nh_.subscribe<geometry_msgs::Twist>(
       "/girona1000xh/joystick/velocity_cmd", 10, &GironaController::joyCmdCallback, this);
 
-#ifdef DEBUG_ROSTOPIC
-  control_wrench_array_pub_ =
-      nh_.advertise<std_msgs::Float64MultiArray>("debug/control_wrench", 10);
-  force_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/force", 10);
-  setpoints_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/setpoints", 10);
-  nu_d_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/nu_d", 10);
-  joint_velocities_array_pub_ =
-      nh_.advertise<std_msgs::Float64MultiArray>("debug/joint_velocities", 10);
-  error_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/error", 10);
+  #ifdef DEBUG_ROSTOPIC
+    control_wrench_array_pub_ =
+        nh_.advertise<std_msgs::Float64MultiArray>("debug/control_wrench", 10);
+    force_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/force", 10);
+    setpoints_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/setpoints", 10);
+    nu_d_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/nu_d", 10);
+    joint_velocities_array_pub_ =
+        nh_.advertise<std_msgs::Float64MultiArray>("debug/joint_velocity_desired", 10);
+    error_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/error", 10);
 
-  gravity_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/gravity", 10);
-  thrusts_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/thrusts", 10);
-  computed_control_wrench_pub_ =
-      nh_.advertise<std_msgs::Float64MultiArray>("debug/computed_control_wrench", 10);
-  gravity_minus_tau_v_pub_ =
-      nh_.advertise<std_msgs::Float64MultiArray>("debug/gravity_minus_tau_v", 10);
-  tau_e_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/tau_e", 10);
-  h_e_inertiaframe_pub_ =
-      nh_.advertise<std_msgs::Float64MultiArray>("debug/h_e_inertiaframe", 10);
-  h_e_bodyframe_pub_ =
-      nh_.advertise<std_msgs::Float64MultiArray>("debug/h_e_bodyframe", 10);
-  h_e_tipframe_pub_ =
-      nh_.advertise<std_msgs::Float64MultiArray>("debug/h_e_tipframe", 10);
-  sensor_feedback_pub_ =
-      nh_.advertise<std_msgs::Float64MultiArray>("debug/sensor_feedback", 10);
-  sensor_calibrated_pub_ =
-      nh_.advertise<std_msgs::Float64MultiArray>("debug/sensor_calibrated", 10);
-  sensor_calibrated_tiplink_pub_ =
-      nh_.advertise<std_msgs::Float64MultiArray>("debug/sensor_calibrated_tiplink", 10);
-#endif
+    gravity_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/gravity", 10);
+    thrusts_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/thrusts", 10);
+    computed_control_wrench_pub_ =
+        nh_.advertise<std_msgs::Float64MultiArray>("debug/computed_control_wrench", 10);
+    gravity_minus_tau_v_pub_ =
+        nh_.advertise<std_msgs::Float64MultiArray>("debug/gravity_minus_tau_v", 10);
+    tau_e_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/tau_e", 10);
+    h_e_inertiaframe_pub_ =
+        nh_.advertise<std_msgs::Float64MultiArray>("debug/h_e_inertiaframe", 10);
+    h_e_bodyframe_pub_ =
+        nh_.advertise<std_msgs::Float64MultiArray>("debug/h_e_bodyframe", 10);
+    h_e_tipframe_pub_ =
+        nh_.advertise<std_msgs::Float64MultiArray>("debug/h_e_tipframe", 10);
+    sensor_feedback_pub_ =
+        nh_.advertise<std_msgs::Float64MultiArray>("debug/sensor_feedback", 10);
+    sensor_calibrated_pub_ =
+        nh_.advertise<std_msgs::Float64MultiArray>("debug/sensor_calibrated", 10);
+    sensor_calibrated_tiplink_pub_ =
+        nh_.advertise<std_msgs::Float64MultiArray>("debug/sensor_calibrated_tiplink", 10);
+  #endif
   // Placeholder for DH parameters and transforms; configure as needed by your arm.
   ROS_INFO("Initialize UVMS model from yaml file (obtained from URDF)");
   
@@ -668,6 +765,23 @@ void GironaController::initializeController() {
   cb = boost::bind(&GironaController::admittanceReconfigCb, this, _1, _2);
   admittance_server_.setCallback(cb);
 
+  #ifdef USE_LOG
+    const std::string log_dir = "/home/sia/girona_ws/src/sensorless_force_control/log/";
+    const std::time_t now = std::time(nullptr);
+    std::tm tm_now{};
+    localtime_r(&now, &tm_now);
+    std::ostringstream name;
+    name << "controller_data_" << std::put_time(&tm_now, "%Y%m%d%H%M%S") << ".csv";
+    const std::string csv_path = log_dir + name.str();
+
+    logger_ = sfc::Logger(csv_path);
+    logger_open_ = logger_.open();
+    if (!logger_open_) {
+      ROS_ERROR("Failed to open CSV file: %s", csv_path.c_str());
+    } else {
+      ROS_INFO("CSV log path: %s", csv_path.c_str());
+    }
+  #endif
 }
 
 void GironaController::joyCmdCallback(const geometry_msgs::Twist::ConstPtr& msg) {

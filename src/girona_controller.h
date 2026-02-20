@@ -28,8 +28,8 @@
 #include "functionlib/robot_model/uvms_regressor.h"
 #include "functionlib/filter/low_pass_filter.h"
 #include "functionlib/contact_control/quaternion_admittance_controller.h"
-#include  "functionlib/stsm_control/super_twisting_smc.h"
-
+#include "functionlib/stsm_control/super_twisting_smc.h"
+#include "logger.h"
 
 #include <cmath>
 #include <yaml-cpp/yaml.h>
@@ -40,6 +40,7 @@
 // #define DEBUG_JOYSTICK
 // #define DEBUG_ADMITTANCE
 
+#define USE_LOG
 #define USE_CONTROL
 // choose one dynamic controller to define
 #define STSMC
@@ -167,7 +168,10 @@ class GironaController {
   sfc::FirstOrderLowPassFilter<6> wrench_filter_;
   sfc::QuaternionAdmittanceController admitance_controller_;
   dynamic_reconfigure::Server<sensorless_force_control::AdmittanceConfig> admittance_server_;
-
+  #ifdef USE_LOG
+    sfc::Logger logger_{""};
+    bool logger_open_{false};
+  #endif
   ros::Subscriber joycmd_sub_;
   void joyCmdCallback(const geometry_msgs::Twist::ConstPtr& msg);
   geometry_msgs::Twist joy_cmd_{};
@@ -202,9 +206,13 @@ class GironaController {
   sfc::Vector6 gain_ee_{1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
   sfc::Vector6 nominal_config_{0.0, 0.0, 0.0, 0.0, 0.0, 1.0};
   sfc::Real allocator_damping_{static_cast<sfc::Real>(1e-4)};
-
-  
-
+  bool enable_thruster_command_{true};
+  bool enable_arm_command_{true};
+  bool enable_logging_{true};
+  bool enable_jointlimits_task_{true};
+  bool enable_sigma_rpy_task_{true};
+  bool enable_ee_task_{true};
+  bool enable_nominalconfiguration_task_{true};
 
   ros::AsyncSpinner spinner_;
   std::thread interface_thread_;

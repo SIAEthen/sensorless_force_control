@@ -1,0 +1,31 @@
+logger_.logVector("velcmd", velcmd);
+
+logger_.logVector("x_ee_d", x_ee_d);
+logger_.logVector("q_ee_d", q_ee_d);
+
+logger_.logVector("x_ee_r", x_ee_r);
+logger_.logVector("q_ee_r", q_ee_r);
+logger_.logVector("v_ee_r", v_ee_r);
+
+logger_.logVector("sigma_jointlimits", sigma_jointlimits);
+logger_.logVector("sigma_rpy", sigma_rpy);
+logger_.logVector("sigma_ee", sigma_ee);
+logger_.logVector("sigma_nominal", sigma_nominal);
+logger_.logVector("nu", nu);
+logger_.logVector("acc", acc);
+logger_.logVector("nu_d", nu_d);
+logger_.logVector("nu_error", nu_error);
+logger_.logVector("joint_velocities", joint_velocities);
+logger_.logVector("thruster_force", thruster_force);
+logger_.logVector("setpoints", setpoints);
+logger_.logVector("control_wrench", control_wrench);
+logger_.logVector("sensor_feedback_filtered", sensor_feedback_filtered);
+logger_.logVector("sensor_feedback_calibrated", sensor_feedback_calibrated);
+logger_.logVector("sensor_feedback_calibrated_ontiplink", sensor_feedback_calibrated_ontiplink);
+
+
+logger_.logVector("computed_control_wrench", h_e_inertiaframe);
+logger_.logVector("gravity_minus_tau_v", h_e_tipframe);
+logger_.logVector("tau_e", h_e_inertiaframe);
+logger_.logVector("h_e_inertiaframe", h_e_inertiaframe);
+logger_.logVector("h_e_tipframe", h_e_tipframe);
