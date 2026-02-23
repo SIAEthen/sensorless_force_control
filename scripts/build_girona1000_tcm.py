@@ -146,5 +146,7 @@ def main() -> None:
     print(setpoint)
     print_setpoints_ros(damped_pseudoinverse(tcm_read)@setpoint)
     print("########################")
+  offset = tcm_read @ np.array([50,50,50,50,0,0])
+  print(offset)
 if __name__ == "__main__":
   main()

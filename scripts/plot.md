@@ -3,3 +3,6 @@
 /bin/python /home/sia/girona_ws/src/sensorless_force_control/scripts/plot_pushing_scenario.py --csv src/sensorless_force_control/log/controller_data_20260220154357_simulated_data.csv
 
 /bin/python /home/sia/girona_ws/src/sensorless_force_control/scripts/plot_pushing_scenario.py --csv src/sensorless_force_control/log/controller_data_20260220160357_base_line.csv --t-start 900 --t-end 1100
+
+
+/bin/python /home/sia/girona_ws/src/sensorless_force_control/scripts/plot_pushing_scenario.py --csv src/sensorless_force_control/log/controller_data_20260223104216.csv

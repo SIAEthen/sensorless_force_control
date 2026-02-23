@@ -20,6 +20,7 @@
 #include "functionlib/robot_model/uvms_single_arm.h"
 #include "functionlib/utilts/print.h"
 #include "functionlib/thrust_allocation/thruster_allocator_dls.h"
+#include "functionlib/thrust_allocation/thruster_allocator_dls_offset.h"
 #include "functionlib/task_priority_control/possible_tasks.h"
 #include "functionlib/task_priority_control/task_priority_solver.h"
 #include "functionlib/pid/pid.h"
@@ -45,6 +46,10 @@
 // choose one dynamic controller to define
 #define STSMC
 // #define PID
+
+// choose one thrust allocation method to define
+#define THRUST_DLS_OFFSET
+// #define THRUST_DLS
 
 inline double thrust2setpoint(double f) {
   const double max_rpm = 1000.0;
@@ -154,7 +159,13 @@ class GironaController {
   ros::NodeHandle pnh_;
   GironaInterface interface_;
   UvmsType uvms_;
-  sfc::ThrusterAllocatorDls<6> allocator_;
+  #ifdef THRUST_DLS
+    sfc::ThrusterAllocatorDls<6> allocator_;
+  #endif
+  #ifdef THRUST_DLS_OFFSET
+    sfc::ThrusterAllocatorDlsOffset<6> allocator_;
+  #endif
+  sfc::Real thrust_offset_{static_cast<sfc::Real>(0.0)};
   #ifdef PID 
     sfc::PidController<6> pid_;
   #endif
@@ -206,6 +217,7 @@ class GironaController {
   sfc::Vector6 gain_ee_{1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
   sfc::Vector6 nominal_config_{0.0, 0.0, 0.0, 0.0, 0.0, 1.0};
   sfc::Real allocator_damping_{static_cast<sfc::Real>(1e-4)};
+
   bool enable_thruster_command_{true};
   bool enable_arm_command_{true};
   bool enable_logging_{true};

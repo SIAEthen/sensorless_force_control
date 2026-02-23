@@ -126,6 +126,11 @@ void GironaController::admittanceReconfigCb(sensorless_force_control::Admittance
     nominal_config_(5) = static_cast<sfc::Real>(config.nominal_config_6);
 
     allocator_damping_ = static_cast<sfc::Real>(config.allocator_damping);
+    #ifdef THRUST_DLS_OFFSET
+      thrust_offset_ = static_cast<sfc::Real>(config.allocator_offset);
+      const Vector6 offset = Vector6{thrust_offset_,thrust_offset_,thrust_offset_,thrust_offset_,0.0,0.0};
+      allocator_.setHorizontalOffset(offset);
+    #endif
     enable_thruster_command_ = config.enable_thruster_command;
     enable_arm_command_ = config.enable_arm_command;
     enable_logging_ = config.enable_logging;
@@ -684,6 +689,10 @@ void GironaController::initializeController() {
     sfc::Vector6 max_force{100,100,100,100,100,100};
     sfc::Vector6 min_force{-100,-100,-100,-100,-100,-100};
     allocator_.setLimits(min_force,max_force);
+    #ifdef THRUST_DLS_OFFSET
+      const Vector6 offset = Vector6{thrust_offset_,thrust_offset_,thrust_offset_,thrust_offset_,0.0,0.0};
+      allocator_.setHorizontalOffset(offset);
+    #endif
     sfc::print(tcm,std::cout,"TCM matrix");
     ROS_INFO("TCM matrix loaded and set.");
   } catch (const std::exception& ex) {
