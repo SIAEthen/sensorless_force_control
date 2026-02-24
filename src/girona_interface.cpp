@@ -78,26 +78,50 @@ void GironaInterface::sendJointVelocityCommand(const sfc::Vector6& velocities) {
 
 void GironaInterface::odomCallback(const nav_msgs::Odometry& msg) {
   sfc::VehicleBase::State state{};
-  state.position[0] = static_cast<sfc::Real>(msg.pose.pose.position.x);
-  state.position[1] = static_cast<sfc::Real>(msg.pose.pose.position.y);
-  state.position[2] = static_cast<sfc::Real>(msg.pose.pose.position.z);
+  const sfc::Vector3 p_ned_base{
+      static_cast<sfc::Real>(msg.pose.pose.position.x),
+      static_cast<sfc::Real>(msg.pose.pose.position.y),
+      static_cast<sfc::Real>(msg.pose.pose.position.z)};
 
   const auto& q_msg = msg.pose.pose.orientation;
   const sfc::Quaternion q{static_cast<sfc::Real>(q_msg.w),
                           static_cast<sfc::Real>(q_msg.x),
                           static_cast<sfc::Real>(q_msg.y),
                           static_cast<sfc::Real>(q_msg.z)};
+  const sfc::RotationMatrix r_ned_base = sfc::RotationMatrix::fromQuaternion(q);
+  // Static TF from base_link to origin from `tf_echo`:
+  // base_link -> origin: translation [0, 0, -0.214], rotation identity.
+  const sfc::Vector3 p_base_origin{0.0, 0.0, -0.214};
+  const sfc::Vector3 p_ned_origin = p_ned_base + (r_ned_base * p_base_origin);
+
+  state.position[0] = p_ned_origin(0);
+  state.position[1] = p_ned_origin(1);
+  state.position[2] = p_ned_origin(2);
+
   const sfc::Vector3 rpy = sfc::rpyFromQuaternion(q);
   state.position[3] = rpy(0);
   state.position[4] = rpy(1);
   state.position[5] = rpy(2);
 
-  state.velocity[0] = static_cast<sfc::Real>(msg.twist.twist.linear.x);
-  state.velocity[1] = static_cast<sfc::Real>(msg.twist.twist.linear.y);
-  state.velocity[2] = static_cast<sfc::Real>(msg.twist.twist.linear.z);
-  state.velocity[3] = static_cast<sfc::Real>(msg.twist.twist.angular.x);
-  state.velocity[4] = static_cast<sfc::Real>(msg.twist.twist.angular.y);
-  state.velocity[5] = static_cast<sfc::Real>(msg.twist.twist.angular.z);
+  // Odometry twist is assumed to be expressed in child_frame_id (base_link).
+  // Convert linear velocity from base origin to origin point with rigid-body relation:
+  // v_origin = v_base + omega x r_base_to_origin (all in base frame).
+  const sfc::Vector3 v_base{
+      static_cast<sfc::Real>(msg.twist.twist.linear.x),
+      static_cast<sfc::Real>(msg.twist.twist.linear.y),
+      static_cast<sfc::Real>(msg.twist.twist.linear.z)};
+  const sfc::Vector3 omega_base{
+      static_cast<sfc::Real>(msg.twist.twist.angular.x),
+      static_cast<sfc::Real>(msg.twist.twist.angular.y),
+      static_cast<sfc::Real>(msg.twist.twist.angular.z)};
+  const sfc::Vector3 v_origin = v_base + sfc::cross(omega_base, p_base_origin);
+
+  state.velocity[0] = v_origin(0);
+  state.velocity[1] = v_origin(1);
+  state.velocity[2] = v_origin(2);
+  state.velocity[3] = omega_base(0);
+  state.velocity[4] = omega_base(1);
+  state.velocity[5] = omega_base(2);
 
   std::lock_guard<std::mutex> lock(mutex_);
   vehicle_state_ = state;
