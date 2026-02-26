@@ -36,7 +36,7 @@
 #include <yaml-cpp/yaml.h>
 
 #define DEBUG_CONTROLLER
-// #define DEBUG_OBSERVER
+#define DEBUG_OBSERVER
 #define DEBUG_ROSTOPIC
 // #define DEBUG_JOYSTICK
 // #define DEBUG_ADMITTANCE
@@ -192,6 +192,7 @@ class GironaController {
   ros::Publisher computed_control_wrench_pub_;
   ros::Publisher gravity_minus_tau_v_pub_;
   ros::Publisher tau_e_pub_;
+  ros::Publisher tau_e_sensed_pub_;
   ros::Publisher h_e_inertiaframe_pub_;
   ros::Publisher h_e_bodyframe_pub_;
   ros::Publisher h_e_tipframe_pub_;
@@ -203,6 +204,16 @@ class GironaController {
   ros::Publisher force_array_pub_;
   ros::Publisher setpoints_array_pub_;
   ros::Publisher nu_d_array_pub_;
+  ros::Publisher ee_velocity_array_pub_;
+  ros::Publisher x_ee_array_pub_;
+  ros::Publisher q_ee_array_pub_;
+  ros::Publisher x_ee_d_array_pub_;
+  ros::Publisher x_ee_r_array_pub_;
+  ros::Publisher q_ee_d_array_pub_;
+  ros::Publisher q_ee_r_array_pub_;
+  ros::Publisher v_ee_d_array_pub_;
+  ros::Publisher v_ee_r_array_pub_;
+  ros::Publisher a_ee_r_array_pub_;
   ros::Publisher joint_velocities_array_pub_;
   ros::Publisher error_array_pub_;
   ros::Publisher sensor_calibrated_pub_;

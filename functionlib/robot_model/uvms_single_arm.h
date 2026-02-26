@@ -194,6 +194,25 @@ public:
     return vstack(j_linear, j_angular);
   }
 
+  // End-effector spatial velocity in inertial frame (NED):
+  // v_ee = J * [nu; dq]
+  Vector6 endEffectorVelocityNed() const {
+    return endEffectorVelocityNed(vehicleVelocity(), manipulatorVelocity());
+  }
+
+  // End-effector spatial velocity in inertial frame (NED), with explicit inputs.
+  Vector6 endEffectorVelocityNed(const Vector6& nu,
+                                 const Vector<kUvmsArmDof>& dq) const {
+    Vector<6 + kUvmsArmDof> uvms_vel{};
+    for (std::size_t i = 0; i < 6; ++i) {
+      uvms_vel(i) = nu(i);
+    }
+    for (std::size_t i = 0; i < kUvmsArmDof; ++i) {
+      uvms_vel(6 + i) = dq(i);
+    }
+    return jacobian() * uvms_vel;
+  }
+
 
 private:
   Vehicle vehicle_;

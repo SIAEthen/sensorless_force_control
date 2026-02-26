@@ -28,6 +28,25 @@ inline void publishArray6(ros::Publisher& pub, const sfc::Vector6& v) {
   pub.publish(msg);
 }
 
+inline void publishArray3(ros::Publisher& pub, const sfc::Vector3& v) {
+  std_msgs::Float64MultiArray msg;
+  msg.data.resize(3);
+  for (std::size_t i = 0; i < 3; ++i) {
+    msg.data[i] = v(i);
+  }
+  pub.publish(msg);
+}
+
+inline void publishQuaternion(ros::Publisher& pub, const sfc::Quaternion& q) {
+  std_msgs::Float64MultiArray msg;
+  msg.data.resize(4);
+  msg.data[0] = q.w;
+  msg.data[1] = q.x;
+  msg.data[2] = q.y;
+  msg.data[3] = q.z;
+  pub.publish(msg);
+}
+
 }  // namespace
 
 namespace sfc {
@@ -58,6 +77,24 @@ void GironaController::admittanceReconfigCb(sensorless_force_control::Admittance
   stiffness(4) = static_cast<sfc::Real>(config.stiffness_5);
   stiffness(5) = static_cast<sfc::Real>(config.stiffness_6);
   admitance_controller_.setGains(mass, damping, stiffness);
+
+  wrench_observer_.setMass(static_cast<sfc::Real>(config.wrench_observer_mass));
+  wrench_observer_.setInertia(sfc::Vector3{
+      static_cast<sfc::Real>(config.wrench_observer_inertia_1),
+      static_cast<sfc::Real>(config.wrench_observer_inertia_2),
+      static_cast<sfc::Real>(config.wrench_observer_inertia_3)});
+  wrench_observer_.setGains(
+      sfc::Vector3{
+          static_cast<sfc::Real>(config.wrench_observer_k1_1),
+          static_cast<sfc::Real>(config.wrench_observer_k1_2),
+          static_cast<sfc::Real>(config.wrench_observer_k1_3)},
+      sfc::Vector3{
+          static_cast<sfc::Real>(config.wrench_observer_k2_1),
+          static_cast<sfc::Real>(config.wrench_observer_k2_2),
+          static_cast<sfc::Real>(config.wrench_observer_k2_3)});
+
+  linear_acc_observer_.setCutoffHz(static_cast<sfc::Real>(config.linear_acc_cutoff_hz));
+  wrench_filter_.setCutoffHz(static_cast<sfc::Real>(config.wrench_filter_cutoff_hz));
 
 #ifdef STSMC
   sfc::Vector6 stsmc_k1{};
@@ -199,7 +236,7 @@ void GironaController::controlThread() {
     ros::Time last = ros::Time::now();
 
     // variable for admittance control
-    sfc::Vector3 x_ee_d{0,2.5,2.0};
+    sfc::Vector3 x_ee_d{0,3.5,2.0};
     // sfc::Quaternion q_ee_d = sfc::Quaternion::fromRPY(-sfc::kPi2,-sfc::kPi2,0.0);
     sfc::Quaternion q_ee_d = sfc::Quaternion{0,0,-0.707,-0.707}; // point the panel
 
@@ -230,7 +267,9 @@ void GironaController::controlThread() {
         // update ee cmds
         const Vector6 velcmd{joy_cmd_.linear.x,joy_cmd_.linear.y,joy_cmd_.linear.z,
                              joy_cmd_.angular.x,joy_cmd_.angular.y,joy_cmd_.angular.z};
+        
         velcmd2configurations(velcmd,x_ee_d,q_ee_d,dt);
+        v_ee_d = velcmd;
         #ifdef DEBUG_JOYSTICK
             sfc::print(velcmd,std::cout,"velcmd");
             sfc::print(x_ee_d,std::cout,"x_ee_d");
@@ -367,8 +406,8 @@ void GironaController::controlThread() {
         // build ee task with desired quaternion or referenced quaternion
         if (enable_ee_task) {
           sfc::buildEeTask(uvms_, x_ee_r, q_ee_d, J_ee, sigma_ee);
-          // sfc::buildTaskVelocity<6>(v_ee_r,sigma_ee,gain_ee,task_vel_ee);
-          sfc::buildTaskVelocity<6>(Vector6{},sigma_ee,gain_ee,task_vel_ee);
+          sfc::buildTaskVelocity<6>(v_ee_r,sigma_ee,gain_ee,task_vel_ee);
+          // sfc::buildTaskVelocity<6>(Vector6{},sigma_ee,gain_ee,task_vel_ee);
           zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_ee, J_ee, N, zeta, damping);
         }
         #ifdef DEBUG_CONTROLLER
@@ -429,17 +468,26 @@ void GironaController::controlThread() {
         const sfc::Vector6 sensor_feedback_calibrated = sensor_feedback_filtered - sfc::Regressor_stupid(t_ft_inertia.rotation()) * wrenchsensor_parameters_;
         const sfc::Matrix<6,6> U_ft_tip = sfc::U_mat(t_ft_tip.rotation(),t_ft_tip.translation());
         const sfc::Vector6 sensor_feedback_calibrated_ontiplink = U_ft_tip * sensor_feedback_calibrated;
+        
+        const auto t_tip_body = uvms_.forwardKinematicsBodyFrame();
+        const sfc::Matrix<6,6> U_tip_body = sfc::U_mat(t_tip_body.rotation(),t_tip_body.translation());
+        const sfc::Vector<6> tau_e_sensed = U_tip_body * sensor_feedback_calibrated_ontiplink * (-1);
+
+
+
         #ifdef DEBUG_OBSERVER
           sfc::print(sensor_feedback,std::cout,"sensor_feedback");
           sfc::print(sensor_feedback_filtered,std::cout,"sensor_feedback_filtered");
           sfc::print(sensor_feedback_calibrated,std::cout,"sensor_feedback_calibrated");
           sfc::print(sensor_feedback_calibrated_ontiplink,std::cout,"sensor_feedback_calibrated_ontiplink");
+          sfc::print(tau_e_sensed,std::cout,"tau_e_sensed");
         #endif
 
         // observer 
         const Vector6 nu = uvms_.vehicleVelocity();
         const Vector3 nu_1{nu(0),nu(1),nu(2)};
         const Vector3 nu_2{nu(3),nu(4),nu(5)};
+        const Vector6 v_ee = uvms_.endEffectorVelocityNed(nu, uvms_.manipulatorVelocity());
         const Vector3 acc = linear_acc_observer_.update(nu_1,dt);
                              
         const Vector6 thrusts = convertSetpointsToThrusts(setpoints);
@@ -454,6 +502,8 @@ void GironaController::controlThread() {
         const Vector6 h_e_bodyframe = U_inertia_body_zero_translation * h_e_inertiaframe;
         const Matrix<6,6> U_inertia_tip_zero_translation = sfc::UMat(t_tip_inertia.rotation().transpose(),Vector3{});
         const Vector6 h_e_tipframe = U_inertia_tip_zero_translation * h_e_inertiaframe;
+
+
 
         #ifdef DEBUG_OBSERVER
           sfc::print(gravity,std::cout,"gravity");
@@ -494,6 +544,16 @@ void GironaController::controlThread() {
           publishArray6(force_array_pub_, thruster_force);
           publishArray6(setpoints_array_pub_, setpoints);
           publishArray6(nu_d_array_pub_, nu_d);
+          publishArray6(ee_velocity_array_pub_, v_ee);
+          publishArray3(x_ee_array_pub_, uvms_.endEffectorPositionNed());
+          publishQuaternion(q_ee_array_pub_, uvms_.endEffectorQuaternionNed());
+          publishArray3(x_ee_d_array_pub_, x_ee_d);
+          publishArray3(x_ee_r_array_pub_, x_ee_r);
+          publishQuaternion(q_ee_d_array_pub_, q_ee_d);
+          publishQuaternion(q_ee_r_array_pub_, q_ee_r);
+          publishArray6(v_ee_d_array_pub_, v_ee_d);
+          publishArray6(v_ee_r_array_pub_, v_ee_r);
+          publishArray6(a_ee_r_array_pub_, a_ee_r);
           publishArray6(joint_velocities_array_pub_, joint_velocity_desired);
           publishArray6(error_array_pub_, nu_error);
           publishArray6(gravity_pub_, gravity);
@@ -501,6 +561,7 @@ void GironaController::controlThread() {
           publishArray6(computed_control_wrench_pub_, computed_control_wrench);
           publishArray6(gravity_minus_tau_v_pub_, gravity_minus_tau_v);
           publishArray6(tau_e_pub_, tau_e);
+          publishArray6(tau_e_sensed_pub_, tau_e_sensed);
           publishArray6(h_e_inertiaframe_pub_, h_e_inertiaframe);
           publishArray6(h_e_bodyframe_pub_, h_e_bodyframe);
           publishArray6(h_e_tipframe_pub_, h_e_tipframe);
@@ -532,6 +593,7 @@ void GironaController::controlThread() {
             logger_.logVector("joint_velocity", uvms_.manipulatorVelocity());
             logger_.logVector("x_ee", uvms_.endEffectorPositionNed());
             logger_.logVector("q_ee", uvms_.endEffectorQuaternionNed());
+            logger_.logVector("v_ee", v_ee);
 
             // cmd by joystick
             logger_.logVector("velcmd", velcmd);
@@ -591,6 +653,16 @@ void GironaController::initializeController() {
     force_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/force", 10);
     setpoints_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/setpoints", 10);
     nu_d_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/nu_d", 10);
+    ee_velocity_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/ee_velocity", 10);
+    x_ee_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/x_ee", 10);
+    q_ee_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/q_ee", 10);
+    x_ee_d_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/x_ee_d", 10);
+    x_ee_r_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/x_ee_r", 10);
+    q_ee_d_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/q_ee_d", 10);
+    q_ee_r_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/q_ee_r", 10);
+    v_ee_d_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/v_ee_d", 10);
+    v_ee_r_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/v_ee_r", 10);
+    a_ee_r_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/a_ee_r", 10);
     joint_velocities_array_pub_ =
         nh_.advertise<std_msgs::Float64MultiArray>("debug/joint_velocity_desired", 10);
     error_array_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/error", 10);
@@ -602,6 +674,7 @@ void GironaController::initializeController() {
     gravity_minus_tau_v_pub_ =
         nh_.advertise<std_msgs::Float64MultiArray>("debug/gravity_minus_tau_v", 10);
     tau_e_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/tau_e", 10);
+    tau_e_sensed_pub_ = nh_.advertise<std_msgs::Float64MultiArray>("debug/tau_e_sensed", 10);
     h_e_inertiaframe_pub_ =
         nh_.advertise<std_msgs::Float64MultiArray>("debug/h_e_inertiaframe", 10);
     h_e_bodyframe_pub_ =
@@ -639,8 +712,8 @@ void GironaController::initializeController() {
   // rosrun tf tf_echo girona1000/base_link girona1000/bravo/base_link
   // rostopic echo /girona1000/dynamics/odometry
   sfc::RotationMatrix r = sfc::RotationMatrix::fromRPY(3.142, 0.000, -0.175);
-  sfc::Vector3 t = sfc::Vector3{0.732, -0.138, 0.271}; //from bravo/base_link to girona1000/base_link
-  // sfc::Vector3 t = sfc::Vector3{0.732, -0.138, 0.485};    //from bravo/base_link to girona1000/origin
+  // sfc::Vector3 t = sfc::Vector3{0.732, -0.138, 0.271}; //from bravo/base_link to girona1000/base_link
+  sfc::Vector3 t = sfc::Vector3{0.732, -0.138, 0.485};    //from bravo/base_link to girona1000/origin
   sfc::HomogeneousMatrix t_0_b = sfc::HomogeneousMatrix::fromRotationTranslation(r, t);
   uvms_.setManipulatorBaseToVehicleTransform(t_0_b);
   uvms_.setManipulator(manip);
@@ -658,7 +731,7 @@ void GironaController::initializeController() {
   
   ROS_INFO("Now we initialize the TCM matrix from Yaml");
   const std::string tcm_yaml_path = 
-          "/home/sia/girona_ws/src/sensorless_force_control/config/control/tcm.yaml";
+          "/home/sia/girona_ws/src/sensorless_force_control/config/control/tcm_with_thruster_torque.yaml";
   try {
     YAML::Node root = YAML::LoadFile(tcm_yaml_path);
     const YAML::Node tcm_node = root["tcm"];
@@ -727,8 +800,11 @@ void GironaController::initializeController() {
 
 
   ROS_INFO("Init dynamic parameters from Yaml");
+  // const std::string dyn_yaml_path =
+  //   "/home/sia/girona_ws/src/sensorless_force_control/config/control/model_optimized.yaml";
   const std::string dyn_yaml_path =
-    "/home/sia/girona_ws/src/sensorless_force_control/config/control/model_optimized.yaml";
+    "/home/sia/girona_ws/src/sensorless_force_control/config/control/model_optimized_withpitch_noconstraints.yaml";  
+    
   try {
     YAML::Node root = YAML::LoadFile(dyn_yaml_path);
     const YAML::Node dyn_node = root["params"];

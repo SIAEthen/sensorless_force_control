@@ -400,7 +400,14 @@ inline Quaternion Quaternion::normalized() const {
   if (n == static_cast<sfc::Real>(0.0)) {
     throw std::runtime_error("Quaternion normalization failed: zero norm");
   }
-  return Quaternion{w / n, x / n, y / n, z / n};
+  Quaternion q{w / n, x / n, y / n, z / n};
+  if (q.w < zero()) {
+    q.w = -q.w;
+    q.x = -q.x;
+    q.y = -q.y;
+    q.z = -q.z;
+  }
+  return q;
 }
 
 inline Quaternion Quaternion::conjugate() const {

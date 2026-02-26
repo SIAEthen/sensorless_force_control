@@ -68,6 +68,7 @@ void GironaController::controlThread() {
     ros::Time last = ros::Time::now();
     ros::Time reset_time = ros::Time::now();
     Vector6 desired_joint_position = getRandomJointPosition();
+    sfc::Real desired_pitch = getRandomAngle(-0.2,0.1);
     while (control_running_.load() && ros::ok()) {
         
             
@@ -116,7 +117,7 @@ void GironaController::controlThread() {
         // sfc::buildRollPitchTask(uvms_, rp_ref, J_rp, sigma_rp);
         // zeta = sfc::taskPrioritySolveStep<kSysDof, 2>(sigma_rp, J_rp, N, zeta, damping);
         // Task 1.5: roll/pitch/yaw stabilization
-        const sfc::Vector<3> rpy_ref{0.0,0.0,0.5};
+        const sfc::Vector<3> rpy_ref{0.0,desired_pitch,0.5};
         const sfc::Vector<3> rpy_gain{0.0,1.0,2.0};
         sfc::Matrix<3, kSysDof> J_rpy{};
         sfc::Vector<3> sigma_rpy{};
@@ -143,15 +144,24 @@ void GironaController::controlThread() {
           sfc::print(zeta,std::cout,"velocity");
         #endif
 
-        if(sfc::vectorNorm(uvms_.vehicleVelocity())< 0.01
+        if( sfc::vectorNorm(uvms_.vehicleVelocity())< 0.01
             && sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position)< 0.05
-            && std::fabs(uvms_.vehicleRpy()(1))< 0.01
+            && std::fabs(desired_pitch - uvms_.vehicleRpy()(1))< 0.02
             && (ros::Time::now().toSec()-reset_time.toSec()) > 30 // big than 30 seconds
           )
           {
+             std::cout << " vehicle velocity norm " << sfc::vectorNorm(uvms_.vehicleVelocity()) 
+            << " joint pos err norm " 
+            << sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position) 
+            << " pitch err " 
+            << std::fabs(desired_pitch - uvms_.vehicleRpy()(1)) 
+            << std::endl;
+
             reset_time = ros::Time::now(); //reset time
             desired_joint_position = getRandomJointPosition();
+            desired_pitch = getRandomAngle(-0.2,0.1);
             sfc::print(desired_joint_position,std::cout,"desired_joint_position");
+            std::cout << "next desired pitch is " << desired_pitch << std::endl;
             logFrame(ros::Time::now().toSec(),
                       uvms_.vehiclePosition(),
                       uvms_.vehicleRpy(),
@@ -164,10 +174,19 @@ void GironaController::controlThread() {
                       ft_sensor_feedback);
             
           }else{
-            std::cout << sfc::vectorNorm(uvms_.vehicleVelocity()) << " " 
-            << sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position) << " " 
-            << std::fabs(uvms_.vehicleRpy()(1)) << std::endl;
+            // std::cout << " vehicle velocity norm " << sfc::vectorNorm(uvms_.vehicleVelocity()) 
+            // << " joint pos err norm " 
+            // << sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position) 
+            // << " pitch err " 
+            // << std::fabs(desired_pitch - uvms_.vehicleRpy()(1)) 
+            // << std::endl;
           }
+        if(ros::Time::now().toSec()-reset_time.toSec() > 300 ){
+          std::cout << " Time out. " << std::endl;
+          reset_time = ros::Time::now(); //reset time
+          desired_joint_position = getRandomJointPosition();
+          sfc::Real desired_pitch = getRandomAngle(-0.2,0.1);
+        }
 
 
 
@@ -276,8 +295,8 @@ void GironaController::initializeController() {
   }
 
   ROS_INFO("Init PID controller");
-  sfc::Vector6 kp{50,50,50,0,40,20};
-  sfc::Vector6 ki{1,1,5,0,8,1};
+  sfc::Vector6 kp{50,50,50,0,50,20};
+  sfc::Vector6 ki{1,1,5,0,10,1};
   sfc::Vector6 kd{8,8,8,0,4,4};
   sfc::Vector6 i_sat{50,50,100,0,50,10};
   pid_.setGains(kp,ki,kd);
@@ -290,7 +309,7 @@ void GironaController::initializeController() {
   std::tm tm_now{};
   localtime_r(&now, &tm_now);
   std::ostringstream name;
-  name << "controller_data_" << std::put_time(&tm_now, "%Y%m%d%H%M%S") << ".csv";
+  name << "calibration_data_" << std::put_time(&tm_now, "%Y%m%d%H%M%S") << ".csv";
   const std::string csv_path = log_dir + name.str();
 
   logger_ = sfc::Logger(csv_path);
