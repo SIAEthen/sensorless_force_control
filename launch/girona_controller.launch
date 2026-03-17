@@ -1,0 +1,23 @@
+<launch>
+  <arg name="robot_name" default="girona1000" />
+  <arg name="n_thrusters" default="6" />
+
+  <arg name="odom_topic" default="dynamics/odometry" />
+  <arg name="joint_state_topic" default="joint_states" />
+  <arg name="thruster_setpoints_topic" default="controller/passthrough_thruster_setpoints" />
+  <arg name="joint_velocity_topic" default="controller/joint_velocity_cmd" />
+  <arg name="wrench_topic" default="ft_sensor/force_torque" />
+
+  <node pkg="sensorless_force_control"
+        type="girona_controller"
+        name="girona_controller"
+        output="screen">
+    <param name="robot_name" value="$(arg robot_name)" />
+    <param name="n_thrusters" value="$(arg n_thrusters)" />
+    <param name="odom_topic" value="$(arg odom_topic)" />
+    <param name="joint_state_topic" value="$(arg joint_state_topic)" />
+    <param name="thruster_setpoints_topic" value="$(arg thruster_setpoints_topic)" />
+    <param name="joint_velocity_topic" value="$(arg joint_velocity_topic)" />
+    <param name="wrench_topic" value="$(arg wrench_topic)" />
+  </node>
+</launch>

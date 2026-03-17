@@ -457,7 +457,7 @@ void GironaController::controlThread() {
         #endif
 
         const sfc::Vector<kSysDof> zeta_abs_limit{
-            0.35, 0.35, 0.35, 0.40, 0.40, 0.40,  // vehicle velocity limits
+            0.2, 0.2, 0.2, 0.3, 0.3, 0.3,  // vehicle velocity limits
             0.30, 0.30, 0.30, 0.30, 0.30, 0.30   // joint velocity limits
         };
         const sfc::Vector<kSysDof> zeta_sat = sfc::clampSymmetric<kSysDof>(zeta, zeta_abs_limit);
@@ -467,18 +467,26 @@ void GironaController::controlThread() {
         const Vector6 gravity = sfc::regressor_girona1000(uvms_.vehicleRpy(),
                                                         uvms_.manipulator(),
                                                         uvms_.manipulatorBaseToVehicleTransform())
-                                * dynamic_parameters_ + dynamic_offset_;   
-        #ifdef PID
-          sfc::Vector6 control_wrench = pid_.update(nu_error,dt);
-        #endif
-        #ifdef STSMC
-          // sfc::Vector6 control_wrench = stsmc_.update(nu_error,Vector6{},gravity,dt);
-          sfc::Vector6 control_wrench = stsmc_.update(nu_error,gravity,dt);
-          control_wrench(3) = 0.0;
-          // sfc::Vector6 control_wrench = stsmc_.update(nu_error,dt);
-        #endif
-        sfc::Vector6 thruster_force = allocator_.allocate(control_wrench,allocator_damping);
-        setpoints = convertThrustsToSetpoints(thruster_force);
+                                * dynamic_parameters_ + dynamic_offset_;
+        sfc::Vector6 control_wrench{};
+        sfc::Vector6 thruster_force{};
+        if (enable_thruster_command) {
+          #ifdef PID
+            control_wrench = pid_.update(nu_error,dt);
+          #endif
+          #ifdef STSMC
+            // control_wrench = stsmc_.update(nu_error,Vector6{},gravity,dt);
+            control_wrench = stsmc_.update(nu_error,gravity,dt);
+            control_wrench(3) = 0.0;
+            // control_wrench = stsmc_.update(nu_error,dt);
+          #endif
+          thruster_force = allocator_.allocate(control_wrench,allocator_damping);
+          setpoints = convertThrustsToSetpoints(thruster_force);
+        }else{
+          stsmc_.reset();
+          thruster_force = allocator_.allocate(control_wrench,allocator_damping);
+          setpoints = convertThrustsToSetpoints(thruster_force);
+        }
         joint_velocity_desired(0) = zeta_sat(6);
         joint_velocity_desired(1) = zeta_sat(7);
         joint_velocity_desired(2) = zeta_sat(8);
