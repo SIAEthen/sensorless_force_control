@@ -47,6 +47,22 @@ inline void publishQuaternion(ros::Publisher& pub, const sfc::Quaternion& q) {
   pub.publish(msg);
 }
 
+inline sfc::Vector6 applyContinuousDeadzone(const sfc::Vector6& value,
+                                            const sfc::Vector6& deadzone) {
+  sfc::Vector6 out{};
+  for (std::size_t i = 0; i < 6; ++i) {
+    const sfc::Real dz = std::abs(deadzone(i));
+    const sfc::Real v = value(i);
+    const sfc::Real av = std::abs(v);
+    if (av <= dz) {
+      out(i) = static_cast<sfc::Real>(0.0);
+    } else {
+      out(i) = (v > static_cast<sfc::Real>(0.0)) ? (av - dz) : -(av - dz);
+    }
+  }
+  return out;
+}
+
 }  // namespace
 
 namespace sfc {
@@ -155,6 +171,13 @@ void GironaController::admittanceReconfigCb(sensorless_force_control::Admittance
     gain_ee_(4) = static_cast<sfc::Real>(config.gain_ee_5);
     gain_ee_(5) = static_cast<sfc::Real>(config.gain_ee_6);
 
+    admittance_deadzone_(0) = static_cast<sfc::Real>(config.admittance_deadzone_1);
+    admittance_deadzone_(1) = static_cast<sfc::Real>(config.admittance_deadzone_2);
+    admittance_deadzone_(2) = static_cast<sfc::Real>(config.admittance_deadzone_3);
+    admittance_deadzone_(3) = static_cast<sfc::Real>(config.admittance_deadzone_4);
+    admittance_deadzone_(4) = static_cast<sfc::Real>(config.admittance_deadzone_5);
+    admittance_deadzone_(5) = static_cast<sfc::Real>(config.admittance_deadzone_6);
+
     nominal_config_(0) = static_cast<sfc::Real>(config.nominal_config_1);
     nominal_config_(1) = static_cast<sfc::Real>(config.nominal_config_2);
     nominal_config_(2) = static_cast<sfc::Real>(config.nominal_config_3);
@@ -236,7 +259,7 @@ void GironaController::controlThread() {
     ros::Time last = ros::Time::now();
 
     // variable for admittance control
-    sfc::Vector3 x_ee_d{0,3.5,2.0};
+    sfc::Vector3 x_ee_d{0,3.0,2.0};
     // sfc::Quaternion q_ee_d = sfc::Quaternion::fromRPY(-sfc::kPi2,-sfc::kPi2,0.0);
     sfc::Quaternion q_ee_d = sfc::Quaternion{0,0,-0.707,-0.707}; // point the panel
 
@@ -323,6 +346,7 @@ void GironaController::controlThread() {
         sfc::Vector3 ref_rpy{};
         sfc::Vector3 gain_rpy{};
         sfc::Vector6 gain_ee{};
+        sfc::Vector6 admittance_deadzone{};
         sfc::Vector6 nominal_config{};
         sfc::Real allocator_damping = static_cast<sfc::Real>(1e-4);
         bool enable_thruster_command = true;
@@ -340,6 +364,7 @@ void GironaController::controlThread() {
           ref_rpy = ref_rpy_;
           gain_rpy = gain_rpy_;
           gain_ee = gain_ee_;
+          admittance_deadzone = admittance_deadzone_;
           nominal_config = nominal_config_;
           allocator_damping = allocator_damping_;
           enable_thruster_command = enable_thruster_command_;
@@ -425,33 +450,41 @@ void GironaController::controlThread() {
           sfc::buildTaskVelocity<6>(sfc::Vector6{},sigma_nominal,gain_nominal_config,task_vel_nominal);
           zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_nominal, J_nominal, N, zeta, damping);
         }
+        
         #ifdef DEBUG_CONTROLLER
           sfc::print(sigma_nominal,std::cout,"sigma_nominal");
           sfc::print(zeta,std::cout,"velocity");
         #endif
 
-        sfc::Vector6 nu_d{zeta(0),zeta(1),zeta(2),zeta(3),zeta(4),zeta(5)};
+        const sfc::Vector<kSysDof> zeta_abs_limit{
+            0.35, 0.35, 0.35, 0.40, 0.40, 0.40,  // vehicle velocity limits
+            0.30, 0.30, 0.30, 0.30, 0.30, 0.30   // joint velocity limits
+        };
+        const sfc::Vector<kSysDof> zeta_sat = sfc::clampSymmetric<kSysDof>(zeta, zeta_abs_limit);
+
+        sfc::Vector6 nu_d{zeta_sat(0),zeta_sat(1),zeta_sat(2),zeta_sat(3),zeta_sat(4),zeta_sat(5)};
         sfc::Vector6 nu_error = nu_d - uvms_.vehicleVelocity();
         const Vector6 gravity = sfc::regressor_girona1000(uvms_.vehicleRpy(),
                                                         uvms_.manipulator(),
                                                         uvms_.manipulatorBaseToVehicleTransform())
-                                * dynamic_parameters_;   
+                                * dynamic_parameters_ + dynamic_offset_;   
         #ifdef PID
-          sfc::Vector6 control_wrench = pid_.update(error,dt);
+          sfc::Vector6 control_wrench = pid_.update(nu_error,dt);
         #endif
         #ifdef STSMC
-          // sfc::Vector6 control_wrench = stsmc_.update(error,Vector6{},gravity,dt);
+          // sfc::Vector6 control_wrench = stsmc_.update(nu_error,Vector6{},gravity,dt);
           sfc::Vector6 control_wrench = stsmc_.update(nu_error,gravity,dt);
-          // sfc::Vector6 control_wrench = stsmc_.update(error,dt);
+          control_wrench(3) = 0.0;
+          // sfc::Vector6 control_wrench = stsmc_.update(nu_error,dt);
         #endif
         sfc::Vector6 thruster_force = allocator_.allocate(control_wrench,allocator_damping);
-        setpoints = convertForceToSetpoints(thruster_force);
-        joint_velocity_desired(0) = zeta(6);
-        joint_velocity_desired(1) = zeta(7);
-        joint_velocity_desired(2) = zeta(8);
-        joint_velocity_desired(3) = zeta(9);
-        joint_velocity_desired(4) = zeta(10);
-        joint_velocity_desired(5) = zeta(11);
+        setpoints = convertThrustsToSetpoints(thruster_force);
+        joint_velocity_desired(0) = zeta_sat(6);
+        joint_velocity_desired(1) = zeta_sat(7);
+        joint_velocity_desired(2) = zeta_sat(8);
+        joint_velocity_desired(3) = zeta_sat(9);
+        joint_velocity_desired(4) = zeta_sat(10);
+        joint_velocity_desired(5) = zeta_sat(11);
 
         #ifdef DEBUG_CONTROLLER
           sfc::print(control_wrench,std::cout,"control wrench");
@@ -515,11 +548,15 @@ void GironaController::controlThread() {
           sfc::print(h_e_bodyframe,std::cout,"h_e_bodyframe");
           sfc::print(h_e_tipframe,std::cout,"h_e_tipframe");
         #endif
-
+        
         // admittance controller
         sfc::QuaternionAdmittanceController::Output out;
         // const Vector6 contact_force_torque = sensor_feedback_calibrated_ontiplink;
-        const Vector6 contact_force_torque = h_e_inertiaframe;
+        #ifdef USE_ADMITTANCE
+          const Vector6 contact_force_torque = applyContinuousDeadzone(h_e_inertiaframe, admittance_deadzone);
+        #else
+          const Vector6 contact_force_torque = Vector6{};
+        #endif
         out=admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
         x_ee_r = out.pos_r;
         q_ee_r = out.q_r;
@@ -573,7 +610,7 @@ void GironaController::controlThread() {
 
         #ifdef USE_CONTROL
           if (enable_thruster_command) {
-            interface_.sendThrusterSetpoints(setpoints);
+            interface_.sendThrusterSetpoints(convertThrustsToNoisedSetpoints(thruster_force));
           }
           if (enable_arm_command) {
             interface_.sendJointVelocityCommand(joint_velocity_desired);
@@ -731,7 +768,7 @@ void GironaController::initializeController() {
   
   ROS_INFO("Now we initialize the TCM matrix from Yaml");
   const std::string tcm_yaml_path = 
-          "/home/sia/girona_ws/src/sensorless_force_control/config/control/tcm_with_thruster_torque.yaml";
+          "/home/sia/girona_ws/src/sensorless_force_control/config/control/tcm_with_thruster_torque_with_installation_error.yaml";
   try {
     YAML::Node root = YAML::LoadFile(tcm_yaml_path);
     const YAML::Node tcm_node = root["tcm"];
@@ -803,7 +840,7 @@ void GironaController::initializeController() {
   // const std::string dyn_yaml_path =
   //   "/home/sia/girona_ws/src/sensorless_force_control/config/control/model_optimized.yaml";
   const std::string dyn_yaml_path =
-    "/home/sia/girona_ws/src/sensorless_force_control/config/control/model_optimized_withpitch_noconstraints.yaml";  
+    "/home/sia/girona_ws/src/sensorless_force_control/config/control/model_optimized_noised_system.yaml";  
     
   try {
     YAML::Node root = YAML::LoadFile(dyn_yaml_path);
@@ -818,6 +855,24 @@ void GironaController::initializeController() {
     ROS_INFO("Dynamic parameters loaded.");
   } catch (const std::exception& ex) {
     ROS_ERROR("Failed to load dynamic parameters: %s", ex.what());
+  }
+
+  ROS_INFO("Init dynamic offset from Yaml");
+  const std::string dyn_offset_yaml_path =
+    "/home/sia/girona_ws/src/sensorless_force_control/config/control/model_optimized_offset.yaml";
+  try {
+    YAML::Node root = YAML::LoadFile(dyn_offset_yaml_path);
+    const YAML::Node offset_node = root["params"];
+    if (!offset_node || !offset_node.IsSequence() || offset_node.size() != 6) {
+      throw std::runtime_error("offset vector must be a sequence of 6 elements");
+    }
+    for (std::size_t i = 0; i < 6; ++i) {
+      dynamic_offset_(i) = static_cast<sfc::Real>(offset_node[i].as<double>());
+    }
+    sfc::print(dynamic_offset_, std::cout, "dynamic_offset");
+    ROS_INFO("Dynamic offset loaded.");
+  } catch (const std::exception& ex) {
+    ROS_ERROR("Failed to load dynamic offset: %s", ex.what());
   }
 
   ROS_INFO("Init wrench sensor dynamic parameters from Yaml");
@@ -856,7 +911,7 @@ void GironaController::initializeController() {
     std::tm tm_now{};
     localtime_r(&now, &tm_now);
     std::ostringstream name;
-    name << "controller_data_" << std::put_time(&tm_now, "%Y%m%d%H%M%S") << ".csv";
+    name << "noised_thruster_controller_data_" << std::put_time(&tm_now, "%Y%m%d%H%M%S") << ".csv";
     const std::string csv_path = log_dir + name.str();
 
     logger_ = sfc::Logger(csv_path);

@@ -12,12 +12,15 @@
 #include "girona_interface.h"
 #include "functionlib/utilts/print.h"
 #include "functionlib/thrust_allocation/thruster_allocator_dls.h"
+#include "functionlib/thrust_allocation/thruster_allocator_dls_offset.h"
 #include "functionlib/task_priority_control/possible_tasks.h"
 #include "functionlib/task_priority_control/task_priority_solver.h"
 #include "functionlib/pid/pid.h"
+#include "thruster_error_define.h"
 
 #include <cmath>
 
+// True models
 inline double thrust2setpoint(double f) {
   const double max_rpm = 1000.0;
   const double KT = 0.48;
@@ -30,13 +33,52 @@ inline double thrust2setpoint(double f) {
   if(f>0.0) return s;
   else return -s;
 }
-inline sfc::Vector<6> convertForceToSetpoints(const sfc::Vector<6> force){
+// True models
+inline double setpoint2thrust(double s) {
+  const double max_rpm = 1000.0;
+  const double KT = 0.48;
+  const double D = 0.18;
+  const double rho = 1000.0;
+  const double n = s * max_rpm / 60;
+  return KT*rho*std::pow(D, 4) * n *std::abs(n);
+}
+
+
+inline sfc::Vector<6> convertThrustsToSetpoints(const sfc::Vector<6> force){
   sfc::Vector<6> setpoints{};
   for(int8_t i=0; i<6;i++){
     setpoints(i) = thrust2setpoint(force(i));
   }
   return setpoints;
 }
+
+inline sfc::Vector<6> convertThrustsToNoisedSetpoints(const sfc::Vector<6> force){
+  sfc::Vector<6> force_noised = sfc::applyThrusterForceError(force);
+  sfc::Vector<6> setpoints{};
+  for(int8_t i=0; i<6;i++){
+    setpoints(i) = thrust2setpoint(force_noised(i));
+  }
+  return setpoints;
+}
+
+inline sfc::Vector<6> convertSetpointsToThrusts(const sfc::Vector<6> setpoints){
+  sfc::Vector<6> thrusts{};
+  for(int8_t i=0; i<6;i++){
+    thrusts(i) = setpoint2thrust(setpoints(i));
+  }
+  return thrusts;
+}
+
+inline sfc::Vector<6> convertNoisedSetpointsToThrusts(const sfc::Vector<6> setpoints){
+  sfc::Vector<6> thrusts{};
+  for(int8_t i=0; i<6;i++){
+    thrusts(i) = setpoint2thrust(setpoints(i));
+  }
+  return sfc::removeThrusterForceError(thrusts);
+}
+
+
+
 inline sfc::Vector<6> getRandomJointPosition(){
   sfc::Vector<6> joint_position{};
   sfc::Vector<6> min{-2.5*sfc::kPi4,      0.0,      0.0,  -3*sfc::kPi4, -sfc::kPi4,            0.0};
@@ -90,7 +132,7 @@ class GironaController {
   ros::NodeHandle pnh_;
   GironaInterface interface_;
   UvmsType uvms_;
-  sfc::ThrusterAllocatorDls<6> allocator_;
+  sfc::ThrusterAllocatorDlsOffset<6> allocator_;
   sfc::PidController<6> pid_;
   sfc::PController<6> p_;
 

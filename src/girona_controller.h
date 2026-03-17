@@ -31,6 +31,7 @@
 #include "functionlib/contact_control/quaternion_admittance_controller.h"
 #include "functionlib/stsm_control/super_twisting_smc.h"
 #include "logger.h"
+#include "thruster_error_define.h"
 
 #include <cmath>
 #include <yaml-cpp/yaml.h>
@@ -43,6 +44,7 @@
 
 #define USE_LOG
 #define USE_CONTROL
+#define USE_ADMITTANCE
 // choose one dynamic controller to define
 #define STSMC
 // #define PID
@@ -51,6 +53,8 @@
 #define THRUST_DLS_OFFSET
 // #define THRUST_DLS
 
+
+// True models
 inline double thrust2setpoint(double f) {
   const double max_rpm = 1000.0;
   const double KT = 0.48;
@@ -63,7 +67,7 @@ inline double thrust2setpoint(double f) {
   if(f>0.0) return s;
   else return -s;
 }
-
+// True models
 inline double setpoint2thrust(double s) {
   const double max_rpm = 1000.0;
   const double KT = 0.48;
@@ -73,10 +77,19 @@ inline double setpoint2thrust(double s) {
   return KT*rho*std::pow(D, 4) * n *std::abs(n);
 }
 
-inline sfc::Vector<6> convertForceToSetpoints(const sfc::Vector<6> force){
+inline sfc::Vector<6> convertThrustsToSetpoints(const sfc::Vector<6> force){
   sfc::Vector<6> setpoints{};
   for(int8_t i=0; i<6;i++){
     setpoints(i) = thrust2setpoint(force(i));
+  }
+  return setpoints;
+}
+
+inline sfc::Vector<6> convertThrustsToNoisedSetpoints(const sfc::Vector<6> force){
+  sfc::Vector<6> force_noised = sfc::applyThrusterForceError(force);
+  sfc::Vector<6> setpoints{};
+  for(int8_t i=0; i<6;i++){
+    setpoints(i) = thrust2setpoint(force_noised(i));
   }
   return setpoints;
 }
@@ -88,6 +101,15 @@ inline sfc::Vector<6> convertSetpointsToThrusts(const sfc::Vector<6> setpoints){
   }
   return thrusts;
 }
+
+inline sfc::Vector<6> convertNoisedSetpointsToThrusts(const sfc::Vector<6> setpoints){
+  sfc::Vector<6> thrusts{};
+  for(int8_t i=0; i<6;i++){
+    thrusts(i) = setpoint2thrust(setpoints(i));
+  }
+  return sfc::removeThrusterForceError(thrusts);
+}
+
 
 inline void velcmd2configurations(const sfc::Vector6& vel_cmd,
                                   sfc::Vector3& x_ee_d,
@@ -175,6 +197,7 @@ class GironaController {
   sfc::ContactWrenchObserver wrench_observer_;
   sfc::AccelerationObserver<3> linear_acc_observer_;
   sfc::Vector<28> dynamic_parameters_;
+  sfc::Vector6 dynamic_offset_;
   sfc::Vector<4> wrenchsensor_parameters_;
   sfc::FirstOrderLowPassFilter<6> wrench_filter_;
   sfc::QuaternionAdmittanceController admitance_controller_;
@@ -226,6 +249,7 @@ class GironaController {
   sfc::Vector3 ref_rpy_{0.0, 0.0, sfc::kPi2 / 2.0};
   sfc::Vector3 gain_rpy_{0.0, 1.0, 2.0};
   sfc::Vector6 gain_ee_{1.0, 1.0, 1.0, 1.0, 1.0, 1.0};
+  sfc::Vector6 admittance_deadzone_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
   sfc::Vector6 nominal_config_{0.0, 0.0, 0.0, 0.0, 0.0, 1.0};
   sfc::Real allocator_damping_{static_cast<sfc::Real>(1e-4)};
 

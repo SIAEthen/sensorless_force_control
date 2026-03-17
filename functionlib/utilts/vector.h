@@ -86,6 +86,26 @@ inline void printVector(const Vector<Size>& v,
   os << "\n";
 }
 
+template <std::size_t Size>
+inline Vector<Size> clampSymmetric(const Vector<Size>& value,
+                                   const Vector<Size>& abs_limit) {
+  if (!value.isFinite() || !abs_limit.isFinite()) {
+    throw std::runtime_error("clampSymmetric: non-finite value");
+  }
+  Vector<Size> out{};
+  for (std::size_t i = 0; i < Size; ++i) {
+    const sfc::Real lim = std::abs(abs_limit(i));
+    if (value(i) > lim) {
+      out(i) = lim;
+    } else if (value(i) < -lim) {
+      out(i) = -lim;
+    } else {
+      out(i) = value(i);
+    }
+  }
+  return out;
+}
+
 }  // namespace sfc
 
 #endif  // SFC_UTILTS_VECTOR_H_
