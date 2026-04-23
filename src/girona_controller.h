@@ -14,13 +14,13 @@
 #include <tf2_ros/transform_broadcaster.h>
 #include <dynamic_reconfigure/server.h>
 #include "sensorless_force_control/AdmittanceConfig.h"
+#include "sensorless_force_control/SetAllocatorMu.h"
 
 
 #include "girona_interface.h"
 #include "functionlib/robot_model/uvms_single_arm.h"
 #include "functionlib/utilts/print.h"
-#include "functionlib/thrust_allocation/thruster_allocator_dls.h"
-#include "functionlib/thrust_allocation/thruster_allocator_dls_offset.h"
+#include "src/thruster_allocator_qpoases.h"
 #include "functionlib/task_priority_control/possible_tasks.h"
 #include "functionlib/task_priority_control/task_priority_solver.h"
 #include "functionlib/pid/pid.h"
@@ -48,10 +48,6 @@
 // choose one dynamic controller to define
 #define STSMC
 // #define PID
-
-// choose one thrust allocation method to define
-#define THRUST_DLS_OFFSET
-// #define THRUST_DLS
 
 
 // True models
@@ -176,17 +172,14 @@ class GironaController {
   void controlThread();
   void initializeController();
   void admittanceReconfigCb(sensorless_force_control::AdmittanceConfig& config, uint32_t level);
+  bool setAllocatorMuCb(sensorless_force_control::SetAllocatorMu::Request& req,
+                        sensorless_force_control::SetAllocatorMu::Response& res);
 
   ros::NodeHandle nh_;
   ros::NodeHandle pnh_;
   GironaInterface interface_;
   UvmsType uvms_;
-  #ifdef THRUST_DLS
-    sfc::ThrusterAllocatorDls<6> allocator_;
-  #endif
-  #ifdef THRUST_DLS_OFFSET
-    sfc::ThrusterAllocatorDlsOffset<6> allocator_;
-  #endif
+  ThrusterAllocatorQpoases allocator_;
   sfc::Real thrust_offset_{static_cast<sfc::Real>(0.0)};
   #ifdef PID 
     sfc::PidController<6> pid_;
@@ -207,6 +200,7 @@ class GironaController {
     bool logger_open_{false};
   #endif
   ros::Subscriber joycmd_sub_;
+  ros::ServiceServer allocator_mu_srv_;
   void joyCmdCallback(const geometry_msgs::Twist::ConstPtr& msg);
   geometry_msgs::Twist joy_cmd_{};
 
@@ -243,6 +237,7 @@ class GironaController {
   ros::Publisher sensor_calibrated_tiplink_pub_;
 
   std::mutex kin_config_mutex_;
+  std::mutex allocator_config_mutex_;
   sfc::Real jointlimit_rho_{static_cast<sfc::Real>(0.2)};
   sfc::Real jointlimit_ds_{static_cast<sfc::Real>(0.2)};
   sfc::Real jointlimit_gain_{static_cast<sfc::Real>(0.1)};
@@ -252,6 +247,8 @@ class GironaController {
   sfc::Vector6 admittance_deadzone_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
   sfc::Vector6 nominal_config_{0.0, 0.0, 0.0, 0.0, 0.0, 1.0};
   sfc::Real allocator_damping_{static_cast<sfc::Real>(1e-4)};
+  sfc::Vector6 allocator_desired_normalized_input_{0.55, 0.55, 0.55, 0.55, 0.0, 0.0};
+  bool allocator_desired_input_pending_{false};
 
   bool enable_thruster_command_{true};
   bool enable_arm_command_{true};

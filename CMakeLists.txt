@@ -8,6 +8,7 @@ endif()
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -g")
 
 find_package(catkin REQUIRED
+  message_generation
   dynamic_reconfigure
   roscpp
   rospy
@@ -25,18 +26,28 @@ generate_dynamic_reconfigure_options(
   cfg/Admittance.cfg
 )
 
+add_service_files(
+  FILES
+  SetAllocatorMu.srv
+)
+
+generate_messages()
+
 catkin_package(
   INCLUDE_DIRS
-  CATKIN_DEPENDS dynamic_reconfigure roscpp rospy nav_msgs geometry_msgs sensor_msgs std_msgs cola2_msgs tf2 tf2_ros tf2_geometry_msgs
+  CATKIN_DEPENDS message_runtime dynamic_reconfigure roscpp rospy nav_msgs geometry_msgs sensor_msgs std_msgs cola2_msgs tf2 tf2_ros tf2_geometry_msgs
   DEPENDS yaml-cpp
 )
 
 find_package(yaml-cpp REQUIRED)
+find_path(QPOASES_INCLUDE_DIR qpOASES.hpp PATHS /home/sia/girona_ws/third_party/qpoases/include NO_DEFAULT_PATH)
+find_library(QPOASES_LIBRARY qpOASES PATHS /home/sia/girona_ws/third_party/qpoases/lib NO_DEFAULT_PATH)
 
 include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}
   functionlib
   ${catkin_INCLUDE_DIRS}
+  ${QPOASES_INCLUDE_DIR}
 )
 
 add_executable(uvms_api_test
@@ -49,12 +60,14 @@ target_link_libraries(uvms_api_test
 add_executable(girona_controller
   src/girona_controller.cpp
   src/girona_interface.cpp
+  src/thruster_allocator_qpoases.cpp
   functionlib/stsm_control/super_twisting_smc.cpp
 )
 add_dependencies(girona_controller ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(girona_controller
   ${catkin_LIBRARIES}
   yaml-cpp
+  ${QPOASES_LIBRARY}
 )
 
 add_executable(girona_controller_collect_data

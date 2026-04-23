@@ -67,6 +67,27 @@ inline sfc::Vector6 applyContinuousDeadzone(const sfc::Vector6& value,
 
 namespace sfc {
 
+bool GironaController::setAllocatorMuCb(sensorless_force_control::SetAllocatorMu::Request& req,
+                                        sensorless_force_control::SetAllocatorMu::Response& res) {
+  std::lock_guard<std::mutex> lock(allocator_config_mutex_);
+  allocator_desired_normalized_input_(0) = static_cast<sfc::Real>(req.mu_1);
+  allocator_desired_normalized_input_(1) = static_cast<sfc::Real>(req.mu_2);
+  allocator_desired_normalized_input_(2) = static_cast<sfc::Real>(req.mu_3);
+  allocator_desired_normalized_input_(3) = static_cast<sfc::Real>(req.mu_4);
+  allocator_desired_input_pending_ = true;
+
+  res.success = true;
+  res.message = "Updated allocator desired normalized input [0:4)";
+  ROS_INFO("Updated allocator mu_d to [%.3f, %.3f, %.3f, %.3f, %.3f, %.3f]",
+           allocator_desired_normalized_input_(0),
+           allocator_desired_normalized_input_(1),
+           allocator_desired_normalized_input_(2),
+           allocator_desired_normalized_input_(3),
+           allocator_desired_normalized_input_(4),
+           allocator_desired_normalized_input_(5));
+  return true;
+}
+
 void GironaController::admittanceReconfigCb(sensorless_force_control::AdmittanceConfig& config,
                                             uint32_t /*level*/) {
   sfc::Vector6 mass{};
@@ -468,6 +489,14 @@ void GironaController::controlThread() {
                                                         uvms_.manipulator(),
                                                         uvms_.manipulatorBaseToVehicleTransform())
                                 * dynamic_parameters_ + dynamic_offset_;
+        {
+          std::lock_guard<std::mutex> lock(allocator_config_mutex_);
+          if (allocator_desired_input_pending_) {
+            allocator_.setDesiredNormalizedInput(allocator_desired_normalized_input_);
+            allocator_desired_input_pending_ = false;
+          }
+        }
+
         sfc::Vector6 control_wrench{};
         sfc::Vector6 thruster_force{};
         if (enable_thruster_command) {
@@ -480,12 +509,11 @@ void GironaController::controlThread() {
             control_wrench(3) = 0.0;
             // control_wrench = stsmc_.update(nu_error,dt);
           #endif
-          thruster_force = allocator_.allocate(control_wrench,allocator_damping);
+          // thruster_force = allocator_.allocate(control_wrench,allocator_damping);
+          thruster_force = allocator_.allocate(control_wrench);
           setpoints = convertThrustsToSetpoints(thruster_force);
-        }else{
+        } else {
           stsmc_.reset();
-          thruster_force = allocator_.allocate(control_wrench,allocator_damping);
-          setpoints = convertThrustsToSetpoints(thruster_force);
         }
         joint_velocity_desired(0) = zeta_sat(6);
         joint_velocity_desired(1) = zeta_sat(7);
@@ -691,6 +719,9 @@ void GironaController::controlThread() {
 void GironaController::initializeController() {
   joycmd_sub_ = nh_.subscribe<geometry_msgs::Twist>(
       "/girona1000xh/joystick/velocity_cmd", 10, &GironaController::joyCmdCallback, this);
+  allocator_mu_srv_ = nh_.advertiseService("set_allocator_mu_d",
+                                           &GironaController::setAllocatorMuCb,
+                                           this);
 
   #ifdef DEBUG_ROSTOPIC
     control_wrench_array_pub_ =
@@ -807,10 +838,11 @@ void GironaController::initializeController() {
     sfc::Vector6 max_force{100,100,100,100,100,100};
     sfc::Vector6 min_force{-100,-100,-100,-100,-100,-100};
     allocator_.setLimits(min_force,max_force);
-    #ifdef THRUST_DLS_OFFSET
-      const Vector6 offset = Vector6{thrust_offset_,thrust_offset_,thrust_offset_,thrust_offset_,0.0,0.0};
-      allocator_.setHorizontalOffset(offset);
-    #endif
+    allocator_.setNormalizedInputScale(max_force);
+    allocator_.setDesiredNormalizedInput(allocator_desired_normalized_input_);
+    allocator_.setWrenchWeights(sfc::Vector6{1.0, 1.0, 1.0, 1.0, 1.0, 1.0});
+    allocator_.setWorkingPointWeights(sfc::Vector6{1.0, 1.0, 1.0, 1.0, 1.0, 1.0});
+    allocator_.setSmoothnessWeights(sfc::Vector6{0.1, 0.1, 0.1, 0.1, 0.1, 0.1});
     sfc::print(tcm,std::cout,"TCM matrix");
     ROS_INFO("TCM matrix loaded and set.");
   } catch (const std::exception& ex) {
