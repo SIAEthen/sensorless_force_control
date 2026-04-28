@@ -281,8 +281,15 @@ void GironaController::controlThread() {
     ros::Time last = ros::Time::now();
 
     // variable for admittance control
-    sfc::Vector3 x_ee_d{0.3,3.6,2.0}; // for scenario push
-    // sfc::Vector3 x_ee_d{0,0,2.0};      // for free floating moving
+    #ifdef S1
+      sfc::Vector3 x_ee_d{0.0,3.6,2.0}; // for scenario push scenario 1
+    #endif
+    #ifdef S2
+      sfc::Vector3 x_ee_d{0.3,3.6,2.0}; // for scenario push scenario 2
+    #endif
+    #ifdef FREE_FLOATING
+      sfc::Vector3 x_ee_d{0,0,2.0};      // for free floating moving
+    #endif
     // sfc::Quaternion q_ee_d = sfc::Quaternion::fromRPY(-sfc::kPi2,-sfc::kPi2,0.0);
     sfc::Quaternion q_ee_d = sfc::Quaternion{0,0,-0.707,-0.707}; // point the panel
 
@@ -616,22 +623,18 @@ void GironaController::controlThread() {
           sfc::print(h_e_tipframe,std::cout,"h_e_tipframe");
         #endif
         
-        // admittance controller
-        #ifdef USE_VARIABLE_ADMITTANCE
-          sfc::VariableAdmittanceController::Output out;
-        #else
-          sfc::QuaternionAdmittanceController::Output out;
-        #endif
-        // const Vector6 contact_force_torque = sensor_feedback_calibrated_ontiplink;
+
         #ifdef USE_ADMITTANCE
+          // admittance controller
+          #ifdef USE_VARIABLE_ADMITTANCE
+            sfc::VariableAdmittanceController::Output out;
+          #else
+            sfc::QuaternionAdmittanceController::Output out;
+          #endif
           const Vector6 contact_force_torque = enable_admittance
               ? applyContinuousDeadzone(h_e_inertiaframe, admittance_deadzone)
               : Vector6{};
-        #else
-          const Vector6 contact_force_torque = Vector6{};
-        #endif
-        
-        #ifdef USE_VARIABLE_ADMITTANCE
+          #ifdef USE_VARIABLE_ADMITTANCE
             // out=variable_admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
             out = enable_admittance
               ? variable_admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt)
@@ -640,13 +643,22 @@ void GironaController::controlThread() {
             if(!enable_admittance){
               variable_admitance_controller_.reset(x_ee_d,q_ee_d);
             }
+          #else
+              out=admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
+          #endif //USE_VARIABLE_ADMITTANCE
+          x_ee_r = enable_admittance ? out.pos_r : x_ee_d;
+          q_ee_r = enable_admittance ? out.q_r : q_ee_d;
+          v_ee_r = enable_admittance ? out.nu_r : v_ee_d;
+          a_ee_r = enable_admittance ? out.acc_r : Vector6{};
+
         #else
-            out=admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
+          const Vector6 contact_force_torque = Vector6{};
+          x_ee_r = x_ee_d;
+          q_ee_r = q_ee_d;
+          v_ee_r = v_ee_d;
+          a_ee_r = Vector6{};
         #endif
-        x_ee_r = enable_admittance ? out.pos_r : x_ee_d;
-        q_ee_r = enable_admittance ? out.q_r : q_ee_d;
-        v_ee_r = enable_admittance ? out.nu_r : v_ee_d;
-        a_ee_r = enable_admittance ? out.acc_r : Vector6{};
+        
         
         
 
@@ -658,7 +670,10 @@ void GironaController::controlThread() {
           sfc::print(v_ee_d,std::cout,"v_ee_d");
           sfc::print(v_ee_r,std::cout,"v_ee_r");
           sfc::print(a_ee_r,std::cout,"a_ee_r");
-          sfc::print(K_stiff,std::cout,"Stiffness gains");
+          #ifdef USE_VARIABLE_ADMITTANCE
+            sfc::print(K_stiff,std::cout,"Stiffness gains");
+          #endif
+          
         #endif
         
 
@@ -693,7 +708,10 @@ void GironaController::controlThread() {
           publishArray6(sensor_feedback_pub_, sensor_feedback);
           publishArray6(sensor_calibrated_pub_, sensor_feedback_calibrated);
           publishArray6(sensor_calibrated_tiplink_pub_, sensor_feedback_calibrated_ontiplink);
-          publishArray6(k_stiff_pub_, K_stiff);
+          #ifdef USE_VARIABLE_ADMITTANCE
+            publishArray6(k_stiff_pub_, K_stiff);
+          #endif
+          
           
         #endif
 
@@ -760,8 +778,11 @@ void GironaController::controlThread() {
             logger_.logVector("h_e_tipframe", h_e_tipframe);
 
 
-            // stiffness
-            logger_.logVector("Stiffness",K_stiff);
+            // stiffness for variable stiffness
+            #ifdef USE_VARIABLE_ADMITTANCE
+              logger_.logVector("Stiffness",K_stiff);
+            #endif
+            
 
             logger_.endFrame();
             
@@ -1008,15 +1029,15 @@ void GironaController::initializeController() {
   admittance_server_.setCallback(cb);
 
   #ifdef USE_VARIABLE_ADMITTANCE
-  const sfc::Vector6 K_mass{100,100,100,100,100,100};
-  const sfc::Vector6 K_damp{1000,1000,1000,1000,1000,1000};
-  const sfc::Vector6 K_stiff{20,20,20,20,20,20};
-  variable_admitance_controller_.setGains(K_mass,K_damp,K_stiff);
-  const sfc::Vector6 K_s{0.1,0.1,0.1,0.1,0.1,0.1};
-  const sfc::Vector6 K_min{20,20,20,20,20,20};
-  const sfc::Vector6 K_max{300,300,300,300,300,300};
-  const sfc::Vector6 nu_0{0.02,0.02,0.02,0.02,0.02,0.02};  
-  variable_admitance_controller_.setVariableStiffnessParams(K_s,K_min,K_max,nu_0);
+    const sfc::Vector6 K_mass{100,100,100,100,100,100};
+    const sfc::Vector6 K_damp{1000,1000,1000,1000,1000,1000};
+    const sfc::Vector6 K_stiff{20,20,20,20,20,20};
+    variable_admitance_controller_.setGains(K_mass,K_damp,K_stiff);
+    const sfc::Vector6 K_s{0.1,0.1,0.1,0.1,0.1,0.1};
+    const sfc::Vector6 K_min{20,20,20,20,20,20};
+    const sfc::Vector6 K_max{300,300,300,300,300,300};
+    const sfc::Vector6 nu_0{0.02,0.02,0.02,0.02,0.02,0.02};  
+    variable_admitance_controller_.setVariableStiffnessParams(K_s,K_min,K_max,nu_0);
   #endif
 
   #ifdef USE_LOG

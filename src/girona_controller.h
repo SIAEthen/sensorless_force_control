@@ -47,10 +47,14 @@
 #define USE_LOG
 #define USE_CONTROL
 #define USE_ADMITTANCE
-#define USE_VARIABLE_ADMITTANCE
+// #define USE_VARIABLE_ADMITTANCE
 // choose one dynamic controller to define
 #define STSMC
 // #define PID
+
+#define S1
+// #define S2
+// #define FREE_FLOATING
 
 
 // True models
