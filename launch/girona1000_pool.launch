@@ -10,7 +10,7 @@
     <arg name="scenario_description"
         default="$(find sensorless_force_control)/scenarios/pilot_pool.scn" />
     <arg name="simulation_rate" default="500.0" />
-    <arg name="graphics_resolution" default="800 600" />
+    <arg name="graphics_resolution" default="320 240" />
     <arg name="graphics_quality" default="low" />
 
     <!-- Static transform -->

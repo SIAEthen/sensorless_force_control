@@ -219,6 +219,7 @@ void GironaController::admittanceReconfigCb(sensorless_force_control::Admittance
     enable_sigma_rpy_task_ = config.enable_sigma_rpy_task;
     enable_ee_task_ = config.enable_ee_task;
     enable_nominalconfiguration_task_ = config.enable_nominalconfiguration_task;
+    enable_admittance_ = config.enable_admittance;
   }
 }
 
@@ -280,7 +281,8 @@ void GironaController::controlThread() {
     ros::Time last = ros::Time::now();
 
     // variable for admittance control
-    sfc::Vector3 x_ee_d{0,3.0,2.0};
+    sfc::Vector3 x_ee_d{0.3,3.6,2.0}; // for scenario push
+    // sfc::Vector3 x_ee_d{0,0,2.0};      // for free floating moving
     // sfc::Quaternion q_ee_d = sfc::Quaternion::fromRPY(-sfc::kPi2,-sfc::kPi2,0.0);
     sfc::Quaternion q_ee_d = sfc::Quaternion{0,0,-0.707,-0.707}; // point the panel
 
@@ -295,6 +297,7 @@ void GironaController::controlThread() {
     sfc::Vector6 v_ee_r{};
     sfc::Vector6 a_ee_r{};
     admitance_controller_.reset(x_ee_d,q_ee_d);
+    variable_admitance_controller_.reset(x_ee_d,q_ee_d);
 
 
 
@@ -309,13 +312,37 @@ void GironaController::controlThread() {
         last = now;
 
         // update ee cmds
-        const Vector6 velcmd{joy_cmd_.linear.x,joy_cmd_.linear.y,joy_cmd_.linear.z,
-                             joy_cmd_.angular.x,joy_cmd_.angular.y,joy_cmd_.angular.z};
-        
-        velcmd2configurations(velcmd,x_ee_d,q_ee_d,dt);
-        v_ee_d = velcmd;
+        v_ee_d = Vector6{};
+        if (ee_pose_cmd_received_) {
+          const sfc::Vector3 x_new{
+              static_cast<sfc::Real>(ee_pose_cmd_.pose.position.x),
+              static_cast<sfc::Real>(ee_pose_cmd_.pose.position.y),
+              static_cast<sfc::Real>(ee_pose_cmd_.pose.position.z)};
+          const sfc::Quaternion q_new = sfc::Quaternion{
+              static_cast<sfc::Real>(ee_pose_cmd_.pose.orientation.w),
+              static_cast<sfc::Real>(ee_pose_cmd_.pose.orientation.x),
+              static_cast<sfc::Real>(ee_pose_cmd_.pose.orientation.y),
+              static_cast<sfc::Real>(ee_pose_cmd_.pose.orientation.z)}.normalized();
+          // linear velocity by finite difference
+          v_ee_d(0) = (x_new(0) - x_ee_d(0)) / dt;
+          v_ee_d(1) = (x_new(1) - x_ee_d(1)) / dt;
+          v_ee_d(2) = (x_new(2) - x_ee_d(2)) / dt;
+          // angular velocity from quaternion finite difference: omega ≈ 2*vec(dq)/dt
+          const sfc::Quaternion dq = q_new * q_ee_d.conjugate();
+          const sfc::Real sign = (dq.w >= sfc::zero()) ? sfc::one() : -sfc::one();
+          v_ee_d(3) = sign * static_cast<sfc::Real>(2.0) * dq.x / dt;
+          v_ee_d(4) = sign * static_cast<sfc::Real>(2.0) * dq.y / dt;
+          v_ee_d(5) = sign * static_cast<sfc::Real>(2.0) * dq.z / dt;
+          x_ee_d = x_new;
+          q_ee_d = q_new;
+        } else {
+          // joystick fallback
+          const Vector6 velcmd{joy_cmd_.linear.x,joy_cmd_.linear.y,joy_cmd_.linear.z,
+                               joy_cmd_.angular.x,joy_cmd_.angular.y,joy_cmd_.angular.z};
+          velcmd2configurations(velcmd,x_ee_d,q_ee_d,dt);
+          v_ee_d = velcmd;
+        }
         #ifdef DEBUG_JOYSTICK
-            sfc::print(velcmd,std::cout,"velcmd");
             sfc::print(x_ee_d,std::cout,"x_ee_d");
             sfc::print(q_ee_d,std::cout,"q_ee_d");
         #endif
@@ -377,6 +404,7 @@ void GironaController::controlThread() {
         bool enable_sigma_rpy_task = true;
         bool enable_ee_task = true;
         bool enable_nominalconfiguration_task = true;
+        bool enable_admittance = false;
         {
           std::lock_guard<std::mutex> lock(kin_config_mutex_);
           jointlimit_rho = jointlimit_rho_;
@@ -395,6 +423,7 @@ void GironaController::controlThread() {
           enable_sigma_rpy_task = enable_sigma_rpy_task_;
           enable_ee_task = enable_ee_task_;
           enable_nominalconfiguration_task = enable_nominalconfiguration_task_;
+          enable_admittance = enable_admittance_;
         }
 
         // const sfc::Vector<6> q_min{-3*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
@@ -478,7 +507,7 @@ void GironaController::controlThread() {
         #endif
 
         const sfc::Vector<kSysDof> zeta_abs_limit{
-            0.2, 0.2, 0.2, 0.3, 0.3, 0.3,  // vehicle velocity limits
+            0.1, 0.1, 0.1, 0.1, 0.1, 0.1,  // vehicle velocity limits
             0.30, 0.30, 0.30, 0.30, 0.30, 0.30   // joint velocity limits
         };
         const sfc::Vector<kSysDof> zeta_sat = sfc::clampSymmetric<kSysDof>(zeta, zeta_abs_limit);
@@ -541,7 +570,9 @@ void GironaController::controlThread() {
         const auto t_tip_body = uvms_.forwardKinematicsBodyFrame();
         const sfc::Matrix<6,6> U_tip_body = sfc::U_mat(t_tip_body.rotation(),t_tip_body.translation());
         const sfc::Vector<6> tau_e_sensed = U_tip_body * sensor_feedback_calibrated_ontiplink * (-1);
-
+        const auto t_inertia_tip = t_tip_inertia.inverse();
+        const sfc::Vector<6> h_e_ned_sensed = sfc::U_mat(t_inertia_tip.rotation(),Vector3{0,0,0})
+                                            * sensor_feedback_calibrated_ontiplink;
 
 
         #ifdef DEBUG_OBSERVER
@@ -586,19 +617,39 @@ void GironaController::controlThread() {
         #endif
         
         // admittance controller
-        sfc::QuaternionAdmittanceController::Output out;
+        #ifdef USE_VARIABLE_ADMITTANCE
+          sfc::VariableAdmittanceController::Output out;
+        #else
+          sfc::QuaternionAdmittanceController::Output out;
+        #endif
         // const Vector6 contact_force_torque = sensor_feedback_calibrated_ontiplink;
         #ifdef USE_ADMITTANCE
-          const Vector6 contact_force_torque = applyContinuousDeadzone(h_e_inertiaframe, admittance_deadzone);
+          const Vector6 contact_force_torque = enable_admittance
+              ? applyContinuousDeadzone(h_e_inertiaframe, admittance_deadzone)
+              : Vector6{};
         #else
           const Vector6 contact_force_torque = Vector6{};
         #endif
-        out=admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
-        x_ee_r = out.pos_r;
-        q_ee_r = out.q_r;
-        v_ee_r = out.nu_r;
-        a_ee_r = out.acc_r;
         
+        #ifdef USE_VARIABLE_ADMITTANCE
+            // out=variable_admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
+            out = enable_admittance
+              ? variable_admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt)
+              : sfc::VariableAdmittanceController::Output {};
+            const Vector6 K_stiff = variable_admitance_controller_.getStiffness();
+            if(!enable_admittance){
+              variable_admitance_controller_.reset(x_ee_d,q_ee_d);
+            }
+        #else
+            out=admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
+        #endif
+        x_ee_r = enable_admittance ? out.pos_r : x_ee_d;
+        q_ee_r = enable_admittance ? out.q_r : q_ee_d;
+        v_ee_r = enable_admittance ? out.nu_r : v_ee_d;
+        a_ee_r = enable_admittance ? out.acc_r : Vector6{};
+        
+        
+
         #ifdef DEBUG_ADMITTANCE
           sfc::print(x_ee_d,std::cout,"x_ee_d");
           sfc::print(x_ee_r,std::cout,"x_ee_r");
@@ -607,6 +658,7 @@ void GironaController::controlThread() {
           sfc::print(v_ee_d,std::cout,"v_ee_d");
           sfc::print(v_ee_r,std::cout,"v_ee_r");
           sfc::print(a_ee_r,std::cout,"a_ee_r");
+          sfc::print(K_stiff,std::cout,"Stiffness gains");
         #endif
         
 
@@ -641,6 +693,7 @@ void GironaController::controlThread() {
           publishArray6(sensor_feedback_pub_, sensor_feedback);
           publishArray6(sensor_calibrated_pub_, sensor_feedback_calibrated);
           publishArray6(sensor_calibrated_tiplink_pub_, sensor_feedback_calibrated_ontiplink);
+          publishArray6(k_stiff_pub_, K_stiff);
           
         #endif
 
@@ -668,11 +721,10 @@ void GironaController::controlThread() {
             logger_.logVector("q_ee", uvms_.endEffectorQuaternionNed());
             logger_.logVector("v_ee", v_ee);
 
-            // cmd by joystick
-            logger_.logVector("velcmd", velcmd);
             // cmd raw
             logger_.logVector("x_ee_d", x_ee_d);
             logger_.logVector("q_ee_d", q_ee_d);
+            logger_.logVector("v_ee_d", v_ee_d);
             // cmd filtered by admittance controller
             logger_.logVector("x_ee_r", x_ee_r);
             logger_.logVector("q_ee_r", q_ee_r);
@@ -697,13 +749,19 @@ void GironaController::controlThread() {
             logger_.logVector("sensor_feedback_filtered", sensor_feedback_filtered);
             logger_.logVector("sensor_feedback_calibrated", sensor_feedback_calibrated);
             logger_.logVector("sensor_feedback_calibrated_ontiplink", sensor_feedback_calibrated_ontiplink);
-
+            logger_.logVector("h_e_ned_sensed", h_e_ned_sensed);
+                        
+            
             // he estimated by observer
             logger_.logVector("computed_control_wrench", computed_control_wrench);
             logger_.logVector("gravity_minus_tau_v", gravity_minus_tau_v);
             logger_.logVector("tau_e", tau_e);
             logger_.logVector("h_e_inertiaframe", h_e_inertiaframe);
             logger_.logVector("h_e_tipframe", h_e_tipframe);
+
+
+            // stiffness
+            logger_.logVector("Stiffness",K_stiff);
 
             logger_.endFrame();
             
@@ -719,6 +777,8 @@ void GironaController::controlThread() {
 void GironaController::initializeController() {
   joycmd_sub_ = nh_.subscribe<geometry_msgs::Twist>(
       "/girona1000xh/joystick/velocity_cmd", 10, &GironaController::joyCmdCallback, this);
+  ee_pose_cmd_sub_ = nh_.subscribe<geometry_msgs::PoseStamped>(
+      "/girona1000xh/ee_pose_cmd", 10, &GironaController::eePoseCmdCallback, this);
   allocator_mu_srv_ = nh_.advertiseService("set_allocator_mu_d",
                                            &GironaController::setAllocatorMuCb,
                                            this);
@@ -763,6 +823,8 @@ void GironaController::initializeController() {
         nh_.advertise<std_msgs::Float64MultiArray>("debug/sensor_calibrated", 10);
     sensor_calibrated_tiplink_pub_ =
         nh_.advertise<std_msgs::Float64MultiArray>("debug/sensor_calibrated_tiplink", 10);
+    k_stiff_pub_ =
+        nh_.advertise<std_msgs::Float64MultiArray>("debug/k_stiff", 10);
   #endif
   // Placeholder for DH parameters and transforms; configure as needed by your arm.
   ROS_INFO("Initialize UVMS model from yaml file (obtained from URDF)");
@@ -945,6 +1007,18 @@ void GironaController::initializeController() {
   cb = boost::bind(&GironaController::admittanceReconfigCb, this, _1, _2);
   admittance_server_.setCallback(cb);
 
+  #ifdef USE_VARIABLE_ADMITTANCE
+  const sfc::Vector6 K_mass{100,100,100,100,100,100};
+  const sfc::Vector6 K_damp{1000,1000,1000,1000,1000,1000};
+  const sfc::Vector6 K_stiff{20,20,20,20,20,20};
+  variable_admitance_controller_.setGains(K_mass,K_damp,K_stiff);
+  const sfc::Vector6 K_s{0.1,0.1,0.1,0.1,0.1,0.1};
+  const sfc::Vector6 K_min{20,20,20,20,20,20};
+  const sfc::Vector6 K_max{300,300,300,300,300,300};
+  const sfc::Vector6 nu_0{0.02,0.02,0.02,0.02,0.02,0.02};  
+  variable_admitance_controller_.setVariableStiffnessParams(K_s,K_min,K_max,nu_0);
+  #endif
+
   #ifdef USE_LOG
     const std::string log_dir = "/home/sia/girona_ws/src/sensorless_force_control/log/";
     const std::time_t now = std::time(nullptr);
@@ -968,7 +1042,15 @@ void GironaController::joyCmdCallback(const geometry_msgs::Twist::ConstPtr& msg)
   if (!msg) {
     return;
   }
-  joy_cmd_ = *msg;  // 先存起来，控制循环里再用
+  joy_cmd_ = *msg;
+}
+
+void GironaController::eePoseCmdCallback(const geometry_msgs::PoseStamped::ConstPtr& msg) {
+  if (!msg) {
+    return;
+  }
+  ee_pose_cmd_ = *msg;
+  ee_pose_cmd_received_ = true;
 }
 
 }  // namespace sfc

@@ -10,6 +10,7 @@
 
 #include <ros/ros.h>
 #include <geometry_msgs/WrenchStamped.h>
+#include <geometry_msgs/PoseStamped.h>
 #include <std_msgs/Float64MultiArray.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <dynamic_reconfigure/server.h>
@@ -29,6 +30,7 @@
 #include "functionlib/robot_model/uvms_regressor.h"
 #include "functionlib/filter/low_pass_filter.h"
 #include "functionlib/contact_control/quaternion_admittance_controller.h"
+#include "functionlib/contact_control/variable_admittance.h"
 #include "functionlib/stsm_control/super_twisting_smc.h"
 #include "logger.h"
 #include "thruster_error_define.h"
@@ -45,6 +47,7 @@
 #define USE_LOG
 #define USE_CONTROL
 #define USE_ADMITTANCE
+#define USE_VARIABLE_ADMITTANCE
 // choose one dynamic controller to define
 #define STSMC
 // #define PID
@@ -193,16 +196,22 @@ class GironaController {
   sfc::Vector6 dynamic_offset_;
   sfc::Vector<4> wrenchsensor_parameters_;
   sfc::FirstOrderLowPassFilter<6> wrench_filter_;
+
   sfc::QuaternionAdmittanceController admitance_controller_;
+  sfc::VariableAdmittanceController variable_admitance_controller_;
   dynamic_reconfigure::Server<sensorless_force_control::AdmittanceConfig> admittance_server_;
   #ifdef USE_LOG
     sfc::Logger logger_{""};
     bool logger_open_{false};
   #endif
   ros::Subscriber joycmd_sub_;
+  ros::Subscriber ee_pose_cmd_sub_;
   ros::ServiceServer allocator_mu_srv_;
   void joyCmdCallback(const geometry_msgs::Twist::ConstPtr& msg);
   geometry_msgs::Twist joy_cmd_{};
+  void eePoseCmdCallback(const geometry_msgs::PoseStamped::ConstPtr& msg);
+  geometry_msgs::PoseStamped ee_pose_cmd_{};
+  bool ee_pose_cmd_received_{false};
 
   ros::Publisher gravity_pub_;
   ros::Publisher thrusts_pub_;
@@ -235,6 +244,7 @@ class GironaController {
   ros::Publisher error_array_pub_;
   ros::Publisher sensor_calibrated_pub_;
   ros::Publisher sensor_calibrated_tiplink_pub_;
+  ros::Publisher k_stiff_pub_;
 
   std::mutex kin_config_mutex_;
   std::mutex allocator_config_mutex_;
@@ -257,6 +267,7 @@ class GironaController {
   bool enable_sigma_rpy_task_{true};
   bool enable_ee_task_{true};
   bool enable_nominalconfiguration_task_{true};
+  bool enable_admittance_{false};
 
   ros::AsyncSpinner spinner_;
   std::thread interface_thread_;

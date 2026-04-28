@@ -48,6 +48,7 @@ class VariableAdmittanceController {
     k_ = stiffness;
     validateMass();
   }
+  const Vector6& getStiffness() const { return k_; }
 
   // Parameters for variable stiffness. nu_0 must be > 0 (velocity half-saturation point).
   void setVariableStiffnessParams(const Vector6& k_s,
