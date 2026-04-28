@@ -52,10 +52,18 @@
 #define STSMC
 // #define PID
 
-#define S1
+// #define S1
 // #define S2
-// #define FREE_FLOATING
+#define FREE_FLOATING
 
+
+//qp allocator damping 
+// #define QP_ALLOCATOR_055
+// #define QP_ALLOCATOR_040
+// #define QP_ALLOCATOR_030
+// #define QP_ALLOCATOR_020
+// #define QP_ALLOCATOR_010
+#define QP_ALLOCATOR_000
 
 // True models
 inline double thrust2setpoint(double f) {
@@ -261,7 +269,26 @@ class GironaController {
   sfc::Vector6 admittance_deadzone_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
   sfc::Vector6 nominal_config_{0.0, 0.0, 0.0, 0.0, 0.0, 1.0};
   sfc::Real allocator_damping_{static_cast<sfc::Real>(1e-4)};
-  sfc::Vector6 allocator_desired_normalized_input_{0.55, 0.55, 0.55, 0.55, 0.0, 0.0};
+  
+  #ifdef QP_ALLOCATOR_055
+    sfc::Vector6 allocator_desired_normalized_input_{0.55, 0.55, 0.55, 0.55, 0.0, 0.0};
+  #endif
+  #ifdef QP_ALLOCATOR_040
+    sfc::Vector6 allocator_desired_normalized_input_{0.40, 0.40, 0.40, 0.40, 0.0, 0.0};
+  #endif
+  #ifdef QP_ALLOCATOR_030
+    sfc::Vector6 allocator_desired_normalized_input_{0.30, 0.30, 0.30, 0.30, 0.0, 0.0};
+  #endif
+  #ifdef QP_ALLOCATOR_020
+    sfc::Vector6 allocator_desired_normalized_input_{0.20, 0.20, 0.20, 0.20, 0.0, 0.0};
+  #endif
+  #ifdef QP_ALLOCATOR_010
+    sfc::Vector6 allocator_desired_normalized_input_{0.10, 0.10, 0.10, 0.10, 0.0, 0.0};
+  #endif
+  #ifdef QP_ALLOCATOR_000
+    sfc::Vector6 allocator_desired_normalized_input_{0.00, 0.00, 0.00, 0.00, 0.0, 0.0};
+  #endif
+  
   bool allocator_desired_input_pending_{false};
 
   bool enable_thruster_command_{true};
