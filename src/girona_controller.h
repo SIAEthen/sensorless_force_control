@@ -31,39 +31,17 @@
 #include "functionlib/filter/low_pass_filter.h"
 #include "functionlib/contact_control/quaternion_admittance_controller.h"
 #include "functionlib/contact_control/variable_admittance.h"
+#include "functionlib/contact_control/girona_iros_force.h"
+
 #include "functionlib/stsm_control/super_twisting_smc.h"
 #include "logger.h"
 #include "thruster_error_define.h"
 
+
 #include <cmath>
 #include <yaml-cpp/yaml.h>
 
-#define DEBUG_CONTROLLER
-#define DEBUG_OBSERVER
-#define DEBUG_ROSTOPIC
-// #define DEBUG_JOYSTICK
-// #define DEBUG_ADMITTANCE
-
-#define USE_LOG
-#define USE_CONTROL
-#define USE_ADMITTANCE
-// #define USE_VARIABLE_ADMITTANCE
-// choose one dynamic controller to define
-#define STSMC
-// #define PID
-
-// #define S1
-// #define S2
-#define FREE_FLOATING
-
-
-//qp allocator damping 
-// #define QP_ALLOCATOR_055
-// #define QP_ALLOCATOR_040
-// #define QP_ALLOCATOR_030
-// #define QP_ALLOCATOR_020
-// #define QP_ALLOCATOR_010
-#define QP_ALLOCATOR_000
+#include "controller_define.h"
 
 // True models
 inline double thrust2setpoint(double f) {
@@ -208,9 +186,14 @@ class GironaController {
   sfc::Vector6 dynamic_offset_;
   sfc::Vector<4> wrenchsensor_parameters_;
   sfc::FirstOrderLowPassFilter<6> wrench_filter_;
+  #ifdef USE_VARIABLE_ADMITTANCE
+    sfc::QuaternionAdmittanceController admitance_controller_;
+  #elif defined(USE_IROS_FORCE)
+    sfc::IrosForceAdmittanceController iros_force_controller_;
+  #else
+    sfc::VariableAdmittanceController variable_admitance_controller_;
+  #endif
 
-  sfc::QuaternionAdmittanceController admitance_controller_;
-  sfc::VariableAdmittanceController variable_admitance_controller_;
   dynamic_reconfigure::Server<sensorless_force_control::AdmittanceConfig> admittance_server_;
   #ifdef USE_LOG
     sfc::Logger logger_{""};
@@ -218,12 +201,14 @@ class GironaController {
   #endif
   ros::Subscriber joycmd_sub_;
   ros::Subscriber ee_pose_cmd_sub_;
+  ros::Subscriber desired_wrench_sub_;
   ros::ServiceServer allocator_mu_srv_;
   void joyCmdCallback(const geometry_msgs::Twist::ConstPtr& msg);
   geometry_msgs::Twist joy_cmd_{};
   void eePoseCmdCallback(const geometry_msgs::PoseStamped::ConstPtr& msg);
   geometry_msgs::PoseStamped ee_pose_cmd_{};
   bool ee_pose_cmd_received_{false};
+  void desiredWrenchCallback(const geometry_msgs::WrenchStamped::ConstPtr& msg);
 
   ros::Publisher gravity_pub_;
   ros::Publisher thrusts_pub_;

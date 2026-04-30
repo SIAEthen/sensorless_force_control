@@ -113,7 +113,17 @@ void GironaController::admittanceReconfigCb(sensorless_force_control::Admittance
   stiffness(3) = static_cast<sfc::Real>(config.stiffness_4);
   stiffness(4) = static_cast<sfc::Real>(config.stiffness_5);
   stiffness(5) = static_cast<sfc::Real>(config.stiffness_6);
-  admitance_controller_.setGains(mass, damping, stiffness);
+  #ifdef USE_ADMITTANCE
+    #ifdef USE_VARIABLE_ADMITTANCE
+      variable_admitance_controller_.setGains(mass, damping, stiffness);       
+    #elif defined(USE_IROS_FORCE)
+    Vector6 stiff = iros_force_controller_.getStiffness();
+      iros_force_controller_.setGains(mass, damping, stiff);                                       
+    #else
+      admitance_controller_.setGains(mass, damping, stiffness);
+    #endif
+  #endif
+  
 
   wrench_observer_.setMass(static_cast<sfc::Real>(config.wrench_observer_mass));
   wrench_observer_.setInertia(sfc::Vector3{
@@ -290,9 +300,15 @@ void GironaController::controlThread() {
     #ifdef FREE_FLOATING
       sfc::Vector3 x_ee_d{0,0,2.0};      // for free floating moving
     #endif
+    #ifdef OBSERVER_TEST
+      sfc::Vector3 x_ee_d{0.0,3.6,2.0};      // for observer test
+    #endif
     // sfc::Quaternion q_ee_d = sfc::Quaternion::fromRPY(-sfc::kPi2,-sfc::kPi2,0.0);
     sfc::Quaternion q_ee_d = sfc::Quaternion{0,0,-0.707,-0.707}; // point the panel
-
+    
+    #ifdef OBSERVER_TEST
+      // q_ee_d = sfc::Quaternion{0.0,0.0,0.0,1.0};      // for observer test
+    #endif
     // test the accuracy, touch the sheep surface.
     // sfc::Vector3 x_ee_d{0.165781, -4.08583, 3.0};
     // sfc::Quaternion q_ee_d = sfc::Quaternion{-0.903388,0.0184309, -0.00873894, -0.428338};
@@ -303,9 +319,19 @@ void GironaController::controlThread() {
     sfc::Quaternion q_ee_r = q_ee_d;
     sfc::Vector6 v_ee_r{};
     sfc::Vector6 a_ee_r{};
-    admitance_controller_.reset(x_ee_d,q_ee_d);
-    variable_admitance_controller_.reset(x_ee_d,q_ee_d);
 
+
+
+    #ifdef USE_ADMITTANCE
+      #ifdef USE_VARIABLE_ADMITTANCE
+        variable_admitance_controller_.reset(x_ee_d,q_ee_d);
+      #elif defined(USE_IROS_FORCE)
+        iros_force_controller_.reset(x_ee_d,q_ee_d);
+      #else
+        admitance_controller_.reset(x_ee_d,q_ee_d);
+      #endif
+    #endif
+    
 
 
     while (control_running_.load() && ros::ok()) {
@@ -626,30 +652,33 @@ void GironaController::controlThread() {
 
         #ifdef USE_ADMITTANCE
           // admittance controller
-          #ifdef USE_VARIABLE_ADMITTANCE
-            sfc::VariableAdmittanceController::Output out;
-          #else
-            sfc::QuaternionAdmittanceController::Output out;
-          #endif
           const Vector6 contact_force_torque = enable_admittance
               ? applyContinuousDeadzone(h_e_inertiaframe, admittance_deadzone)
               : Vector6{};
           #ifdef USE_VARIABLE_ADMITTANCE
-            // out=variable_admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
-            out = enable_admittance
-              ? variable_admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt)
-              : sfc::VariableAdmittanceController::Output {};
-            const Vector6 K_stiff = variable_admitance_controller_.getStiffness();
-            if(!enable_admittance){
-              variable_admitance_controller_.reset(x_ee_d,q_ee_d);
-            }
+            sfc::VariableAdmittanceController::Output out;
+              // out=variable_admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
+              out = enable_admittance
+                ? variable_admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt)
+                : sfc::VariableAdmittanceController::Output {};
+              const Vector6 K_stiff = variable_admitance_controller_.getStiffness();
+              if(!enable_admittance){
+                variable_admitance_controller_.reset(x_ee_d,q_ee_d);
+              }
+          #elif defined(USE_IROS_FORCE)
+            sfc::IrosForceAdmittanceController::Output out;
+            // set desired force
+            out=iros_force_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
+            Vector6 iros_force_stiffness = iros_force_controller_.getStiffness();
           #else
-              out=admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
-          #endif //USE_VARIABLE_ADMITTANCE
-          x_ee_r = enable_admittance ? out.pos_r : x_ee_d;
-          q_ee_r = enable_admittance ? out.q_r : q_ee_d;
-          v_ee_r = enable_admittance ? out.nu_r : v_ee_d;
-          a_ee_r = enable_admittance ? out.acc_r : Vector6{};
+            sfc::QuaternionAdmittanceController::Output out;
+            out=admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
+          #endif // USE_VARIABLE_ADMITTANCE
+
+        x_ee_r = enable_admittance ? out.pos_r : x_ee_d;
+        q_ee_r = enable_admittance ? out.q_r : q_ee_d;
+        v_ee_r = enable_admittance ? out.nu_r : v_ee_d;
+        a_ee_r = enable_admittance ? out.acc_r : Vector6{};
 
         #else
           const Vector6 contact_force_torque = Vector6{};
@@ -711,6 +740,9 @@ void GironaController::controlThread() {
           #ifdef USE_VARIABLE_ADMITTANCE
             publishArray6(k_stiff_pub_, K_stiff);
           #endif
+          #ifdef USE_IROS_FORCE
+            publishArray6(k_stiff_pub_, iros_force_stiffness);
+          #endif
           
           
         #endif
@@ -769,7 +801,7 @@ void GironaController::controlThread() {
             logger_.logVector("sensor_feedback_calibrated_ontiplink", sensor_feedback_calibrated_ontiplink);
             logger_.logVector("h_e_ned_sensed", h_e_ned_sensed);
                         
-            
+
             // he estimated by observer
             logger_.logVector("computed_control_wrench", computed_control_wrench);
             logger_.logVector("gravity_minus_tau_v", gravity_minus_tau_v);
@@ -781,6 +813,9 @@ void GironaController::controlThread() {
             // stiffness for variable stiffness
             #ifdef USE_VARIABLE_ADMITTANCE
               logger_.logVector("Stiffness",K_stiff);
+            #endif
+            #ifdef USE_IROS_FORCE
+              logger_.logVector("Stiffness",iros_force_stiffness);
             #endif
             
 
@@ -800,7 +835,9 @@ void GironaController::initializeController() {
       "/girona1000xh/joystick/velocity_cmd", 10, &GironaController::joyCmdCallback, this);
   ee_pose_cmd_sub_ = nh_.subscribe<geometry_msgs::PoseStamped>(
       "/girona1000xh/ee_pose_cmd", 10, &GironaController::eePoseCmdCallback, this);
-  allocator_mu_srv_ = nh_.advertiseService("set_allocator_mu_d",
+  desired_wrench_sub_ = nh_.subscribe<geometry_msgs::WrenchStamped>(
+      "/girona1000xh/desired_wrench", 10, &GironaController::desiredWrenchCallback, this);
+  allocator_mu_srv_ = nh_.advertiseService("/girona1000xh/set_allocator_mu_d",
                                            &GironaController::setAllocatorMuCb,
                                            this);
 
@@ -1019,26 +1056,39 @@ void GironaController::initializeController() {
   ROS_INFO("Init wrench sensor filter cutoff frequency");
   wrench_filter_.setCutoffHz(30);
 
-  const sfc::Vector6 mass{100,100,100,100,100,100};
-  const sfc::Vector6 damping{200,200,200,200,200,200};
-  const sfc::Vector6 stiffness{1000,1000,1000,1000,1000,1000}; // we can vary the stiffness based on the velocity.
-  admitance_controller_.setGains(mass,damping,stiffness);
+  
 
   dynamic_reconfigure::Server<sensorless_force_control::AdmittanceConfig>::CallbackType cb;
   cb = boost::bind(&GironaController::admittanceReconfigCb, this, _1, _2);
   admittance_server_.setCallback(cb);
-
-  #ifdef USE_VARIABLE_ADMITTANCE
-    const sfc::Vector6 K_mass{100,100,100,100,100,100};
-    const sfc::Vector6 K_damp{1000,1000,1000,1000,1000,1000};
-    const sfc::Vector6 K_stiff{20,20,20,20,20,20};
-    variable_admitance_controller_.setGains(K_mass,K_damp,K_stiff);
-    const sfc::Vector6 K_s{0.1,0.1,0.1,0.1,0.1,0.1};
-    const sfc::Vector6 K_min{20,20,20,20,20,20};
-    const sfc::Vector6 K_max{300,300,300,300,300,300};
-    const sfc::Vector6 nu_0{0.02,0.02,0.02,0.02,0.02,0.02};  
-    variable_admitance_controller_.setVariableStiffnessParams(K_s,K_min,K_max,nu_0);
+  #ifdef USE_ADMITTANCE
+    #ifdef USE_VARIABLE_ADMITTANCE
+      const sfc::Vector6 K_mass{100,100,100,100,100,100};
+      const sfc::Vector6 K_damp{1000,1000,1000,1000,1000,1000};
+      const sfc::Vector6 K_stiff{20,20,20,20,20,20};
+      variable_admitance_controller_.setGains(K_mass,K_damp,K_stiff);
+      const sfc::Vector6 K_s{0.1,0.1,0.1,0.1,0.1,0.1};
+      const sfc::Vector6 K_min{20,20,20,20,20,20};
+      const sfc::Vector6 K_max{300,300,300,300,300,300};
+      const sfc::Vector6 nu_0{0.02,0.02,0.02,0.02,0.02,0.02};  
+      variable_admitance_controller_.setVariableStiffnessParams(K_s,K_min,K_max,nu_0);
+    #elif defined(USE_IROS_FORCE)
+      const sfc::Vector6 mass{20,20,20,20,20,20};
+      const sfc::Vector6 damping{100,100,100,100,100,100};
+      const sfc::Vector6 stiffness{50,50,50,50,50,50}; 
+      const sfc::Vector6 K_s{5.0,5.0,5.0,5.0,5.0,5.0};
+      const sfc::Vector6 K_min{20,20,20,20,20,20};
+      const sfc::Vector6 K_max{300,300,300,300,300,300};
+      iros_force_controller_.setGains(mass,damping,stiffness);
+      iros_force_controller_.setForceIntegralParams(K_s,K_min,K_max);
+    #else
+      const sfc::Vector6 mass{100,100,100,100,100,100};
+      const sfc::Vector6 damping{200,200,200,200,200,200};
+      const sfc::Vector6 stiffness{1000,1000,1000,1000,1000,1000}; // we can vary the stiffness based on the velocity.
+      admitance_controller_.setGains(mass,damping,stiffness);
+    #endif
   #endif
+  
 
   #ifdef USE_LOG
     const std::string log_dir = "/home/sia/girona_ws/src/sensorless_force_control/log/";
@@ -1072,6 +1122,22 @@ void GironaController::eePoseCmdCallback(const geometry_msgs::PoseStamped::Const
   }
   ee_pose_cmd_ = *msg;
   ee_pose_cmd_received_ = true;
+}
+
+void GironaController::desiredWrenchCallback(const geometry_msgs::WrenchStamped::ConstPtr& msg) {
+  if (!msg) {
+    return;
+  }
+#if defined(USE_IROS_FORCE)
+  sfc::Vector6 w_hat_d{};
+  w_hat_d(0) = static_cast<sfc::Real>(msg->wrench.force.x);
+  w_hat_d(1) = static_cast<sfc::Real>(msg->wrench.force.y);
+  w_hat_d(2) = static_cast<sfc::Real>(msg->wrench.force.z);
+  w_hat_d(3) = static_cast<sfc::Real>(msg->wrench.torque.x);
+  w_hat_d(4) = static_cast<sfc::Real>(msg->wrench.torque.y);
+  w_hat_d(5) = static_cast<sfc::Real>(msg->wrench.torque.z);
+  iros_force_controller_.setDesiredWrench(w_hat_d);
+#endif
 }
 
 }  // namespace sfc
