@@ -40,6 +40,7 @@ catkin_package(
 )
 
 find_package(yaml-cpp REQUIRED)
+find_package(Eigen3 REQUIRED)
 find_path(QPOASES_INCLUDE_DIR qpOASES.hpp PATHS /home/sia/girona_ws/third_party/qpoases/include NO_DEFAULT_PATH)
 find_library(QPOASES_LIBRARY qpOASES PATHS /home/sia/girona_ws/third_party/qpoases/lib NO_DEFAULT_PATH)
 
@@ -47,15 +48,11 @@ include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}
   functionlib
   ${catkin_INCLUDE_DIRS}
+  ${EIGEN3_INCLUDE_DIRS}
   ${QPOASES_INCLUDE_DIR}
 )
 
-add_executable(uvms_api_test
-  test/uvms_api_test.cpp
-)
-target_link_libraries(uvms_api_test
-  ${catkin_LIBRARIES}
-)
+
 
 add_executable(girona_controller
   src/girona_controller.cpp
@@ -96,10 +93,12 @@ target_link_libraries(joystick_bridge
 
 add_executable(manipulator_yaml_test
   test/manipulator_yaml_test.cpp
+  functionlib/hqp/hqp_cascaded_solver.cpp
 )
 target_link_libraries(manipulator_yaml_test
   ${catkin_LIBRARIES}
   yaml-cpp
+  ${QPOASES_LIBRARY}
 )
 
 add_executable(task_priority_solver_test
@@ -115,4 +114,22 @@ add_executable(stsmc_example
 )
 target_link_libraries(stsmc_example
   ${catkin_LIBRARIES}
+)
+
+add_executable(hqp_cascaded_test
+  test/hqp_cascaded_test.cpp
+  functionlib/hqp/hqp_cascaded_solver.cpp
+)
+target_link_libraries(hqp_cascaded_test
+  ${catkin_LIBRARIES}
+  ${QPOASES_LIBRARY}
+)
+
+add_executable(uvms_api_test
+  test/uvms_api_test.cpp
+  functionlib/hqp/hqp_cascaded_solver.cpp
+)
+target_link_libraries(uvms_api_test
+  ${catkin_LIBRARIES}
+  ${QPOASES_LIBRARY}
 )

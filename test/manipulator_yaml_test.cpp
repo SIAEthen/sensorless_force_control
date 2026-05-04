@@ -7,6 +7,20 @@
 #include "functionlib/utilts/linear_algebra.h"
 #include "functionlib/utilts/print.h"
 #include "functionlib/robot_model/uvms_single_arm.h"
+#include "functionlib/hqp/hqp_cascaded_solver.h"
+#include "functionlib/hqp/hqp_tasks.h"
+#include <iomanip>
+#include <cassert>
+#include <cmath>
+
+static void print(const std::string& label, const hqp::HQPCascadedResult& r) {
+    std::cout << "\n[" << label << "]  success=" << r.success << "\n";
+    std::cout << "  qdot = " << r.qdot.transpose() << "\n";
+    for (int k = 0; k < (int)r.slacks.size(); ++k)
+        std::cout << "  w" << k+1 << " = " << r.slacks[k].transpose()
+                  << "  (|w|=" << std::fixed << std::setprecision(6)
+                  << r.slacks[k].norm() << ")\n";
+}
 
 
 int main() {
@@ -95,6 +109,35 @@ int main() {
   sfc::print(t_ee_ned.translation(),std::cout,"xyz");
   sfc::print(sfc::rpyFromRotationMatrix(t_ee_ned.rotation()),std::cout,"rpy");
 
+
+
+  const int n = 12; // uvms 12 dof
+  hqp::HQPCascadedSolver solver(n);
+  solver.clearTasks();
+  //task: Joint Limits
+  sfc::Vector<6> q_min = sfc::Vector<6>{-1,-1,-1,-1,-1,-1};
+  sfc::Vector<6> q_max = sfc::Vector<6>{1,1,1,1,1,1};
+  sfc::Vector<12> Kq_jl = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
+  sfc::Vector<6> Kw_jl = sfc::Vector<6>{1000,1000,1000,1000,1000,1000};
+  solver.addTask(hqp::makeJointLimitTask(uvms, q_min, q_max, Kq_jl, Kw_jl));
+
+  sfc::Vector<2> gain_rp = sfc::Vector<2>{1,1};
+  sfc::Vector<2> rp_ref = sfc::Vector<2>{0,0};
+  sfc::Vector<12> Kq_rp = sfc::Vector<12>{1,1,1,5,5,1, 1,1,1,1,1,1};
+  sfc::Vector<2> Kw_rp = sfc::Vector<2>{1,1};
+  solver.addTask(hqp::makeRollPitchTask(uvms, rp_ref, gain_rp, Kq_rp, Kw_rp));
+
+  sfc::Vector<6> gain_ee = sfc::Vector<6>{1,1,1,1,1,1};
+  const sfc::Vector3 pos_ref = uvms.endEffectorPositionNed();
+  const sfc::Quaternion q_ref = uvms.endEffectorQuaternionNed();
+  sfc::Vector<12> Kq_ee = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
+  sfc::Vector<6> Kw_ee = sfc::Vector<6>{1,1,1,1,1,1};
+  solver.addTask(hqp::makeEeTask(uvms, pos_ref, q_ref, gain_ee,Kq_ee,Kw_ee));
+
+  
+  auto res = solver.solve();
+  Eigen::VectorXd zeta_eigen = res.qdot;
+  sfc::print(hqp::toVector<12>(zeta_eigen),std::cout,"zeta_hqp");
 
 
   return 0;

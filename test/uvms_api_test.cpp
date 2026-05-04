@@ -7,6 +7,21 @@
 #include "functionlib/task_priority_control/task_priority_solver.h"
 #include "functionlib/utilts/real.h"
 #include "functionlib/utilts/linear_algebra.h"
+#include "functionlib/hqp/hqp_cascaded_solver.h"
+#include "functionlib/hqp/hqp_tasks.h"
+#include <iomanip>
+#include <cassert>
+#include <cmath>
+
+static void print(const std::string& label, const hqp::HQPCascadedResult& r) {
+    std::cout << "\n[" << label << "]  success=" << r.success << "\n";
+    std::cout << "  qdot = " << r.qdot.transpose() << "\n";
+    for (int k = 0; k < (int)r.slacks.size(); ++k)
+        std::cout << "  w" << k+1 << " = " << r.slacks[k].transpose()
+                  << "  (|w|=" << std::fixed << std::setprecision(6)
+                  << r.slacks[k].norm() << ")\n";
+}
+
 
 int main() {
   constexpr std::size_t kArmDof = 7;
@@ -122,6 +137,21 @@ int main() {
   const sfc::Real dt = static_cast<sfc::Real>(0.02);
   const sfc::Vector6 tau = body_vel_pd.update(vel_err, dt);
   sfc::printVector(tau, std::cout, "body_velocity_tau");
+
+
+
+
+  
+
+
+
+
+
+
+
+
+
+
 
   return 0;
 }
