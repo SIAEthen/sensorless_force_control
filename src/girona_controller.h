@@ -12,6 +12,7 @@
 #include <geometry_msgs/WrenchStamped.h>
 #include <geometry_msgs/PoseStamped.h>
 #include <std_msgs/Float64MultiArray.h>
+#include <std_msgs/Float64.h>
 #include <tf2_ros/transform_broadcaster.h>
 #include <dynamic_reconfigure/server.h>
 #include "sensorless_force_control/AdmittanceConfig.h"
@@ -21,6 +22,7 @@
 #include "girona_interface.h"
 #include "functionlib/robot_model/uvms_single_arm.h"
 #include "functionlib/utilts/print.h"
+#include "functionlib/utilts/robot_math.h"
 #include "src/thruster_allocator_qpoases.h"
 #include "functionlib/task_priority_control/possible_tasks.h"
 #include "functionlib/task_priority_control/task_priority_solver.h"
@@ -250,6 +252,7 @@ class GironaController {
   ros::Publisher sensor_calibrated_pub_;
   ros::Publisher sensor_calibrated_tiplink_pub_;
   ros::Publisher k_stiff_pub_;
+  ros::Publisher manipulability_pub_;
 
   std::mutex kin_config_mutex_;
   std::mutex allocator_config_mutex_;

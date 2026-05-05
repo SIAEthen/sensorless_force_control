@@ -1,5 +1,5 @@
 #define DEBUG_CONTROLLER
-#define DEBUG_OBSERVER
+// #define DEBUG_OBSERVER
 #define DEBUG_ROSTOPIC
 // #define DEBUG_JOYSTICK
 // #define DEBUG_ADMITTANCE

@@ -20,12 +20,6 @@ inline Quaternion quatError(const Quaternion& q_d, const Quaternion& q_now) {
   }
 
   Quaternion q_e = q_d * q_now.conjugate();
-  if (q_e.w < zero()) {
-    q_e.w = -q_e.w;
-    q_e.x = -q_e.x;
-    q_e.y = -q_e.y;
-    q_e.z = -q_e.z;
-  }
   return q_e.normalized();
 }
 

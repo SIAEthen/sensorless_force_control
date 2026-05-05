@@ -135,10 +135,11 @@ inline HQPCascadedTask makeEeTask(
     const sfc::Vector<6>& gain,
     const sfc::Vector<6 + ArmDof>& Kq,
     const sfc::Vector<6>& Kw,
+    double sigma_threshold = 0.01,
+    double lambda_max      = 0.001,
     std::string name = "ee_pose")
 {
     sfc::Matrix<6, 6 + ArmDof> J = uvms.jacobian();
-    for (std::size_t r = 0; r < 6; ++r) J(r, 3) = sfc::Real(0);  // zero yaw
 
     const sfc::Vector3    pos_now = uvms.endEffectorPositionNed();
     const sfc::Quaternion q_now   = uvms.endEffectorQuaternionNed();
@@ -152,8 +153,27 @@ inline HQPCascadedTask makeEeTask(
     b(4) = static_cast<double>(gain(4) * q_err.y);
     b(5) = static_cast<double>(gain(5) * q_err.z);
 
-    return HQPCascadedTask(toEigen(J), b, 
-    toEigenMatrix(Kq),toEigenMatrix(Kw),
+    // Nakamura variable DLS: λ_eff_i = λ_max·(1-(σ_i/σ_th)²) when σ_i < σ_th, else 0
+    // scale_i = σ_i²/(σ_i² + λ_eff_i²)
+    // → good directions (σ≥σ_th): scale=1, untouched
+    // → near-singular (σ→0): scale→0, smoothly suppressed
+    const Eigen::MatrixXd J_eig = toEigen(J);
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_eig, Eigen::ComputeThinU);
+    const Eigen::VectorXd& sigma = svd.singularValues();
+    Eigen::VectorXd scale(sigma.size());
+    for (int i = 0; i < sigma.size(); ++i) {
+        const double s = sigma(i);
+        double lam = 0.0;
+        if (s < sigma_threshold) {
+            const double r = s / sigma_threshold;
+            lam = lambda_max * (1.0 - r * r);
+        }
+        scale(i) = (s * s) / (s * s + lam * lam);
+    }
+    b = svd.matrixU() * scale.asDiagonal() * (svd.matrixU().transpose() * b);
+
+    return HQPCascadedTask(J_eig, b,
+    toEigenMatrix(Kq), toEigenMatrix(Kw),
     std::move(name));
 }
 

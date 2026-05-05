@@ -520,7 +520,9 @@ void GironaController::controlThread() {
           // sfc::buildTaskVelocity<6>(Vector6{},sigma_ee,gain_ee,task_vel_ee);
           zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_ee, J_ee, N, zeta, damping);
         }
+        sfc::Real manipulability = sfc::Real(0.0);
         #ifdef DEBUG_CONTROLLER
+          manipulability = sfc::cal_manipulability(J_ee);
           sfc::print(sigma_ee,std::cout,"sigma_ee");
           sfc::print(zeta,std::cout,"zeta");
         #endif
@@ -554,11 +556,10 @@ void GironaController::controlThread() {
           //task: Joint Limits
           const sfc::Vector<6> q_min{-1.5*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
           const sfc::Vector<6> q_max{ 1.5*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,      3.5*sfc::kPi4};
-          const sfc::Vector<6> dq_min{-0.2,-0.2,-0.2,-0.2,-0.2,-0.2};
-          const sfc::Vector<6> dq_max{0.2,0.2,0.2,0.2,0.2,0.2};
-          const sfc::Vector<6> nu_min{-0.1,-0.1,-0.1,-0.1,-0.1,-0.1};
-          const sfc::Vector<6> nu_max{0.1,0.1,0.1,0.1,0.1,0.1};
-
+          const sfc::Vector<6> dq_min{-0.30, -0.30, -0.30, -0.30, -0.30, -0.30};
+          const sfc::Vector<6> dq_max{0.30, 0.30, 0.30, 0.30, 0.30, 0.30};
+          const sfc::Vector<6> nu_min{-0.10,-0.10,-0.10,-0.10,-0.10,-0.10};
+          const sfc::Vector<6> nu_max{0.10,0.10,0.10,0.10,0.10,0.10};
           sfc::Vector<12> Kq_jl = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
           sfc::Vector<12> Kw_jl = sfc::Vector<12>{1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000};
           if (enable_jointlimits_task) { 
@@ -573,24 +574,29 @@ void GironaController::controlThread() {
           // if (enable_sigma_rpy_task) { 
           //   solver.addTask(hqp::makeRollPitchTask(uvms_, rp_ref, gain_rp, Kq_rp, Kw_rp));}
 
-          // Task: RPY
+          // Task: Vehicle RPY
           // sfc::Vector<3> gain_rpy = sfc::Vector<3>{1,1,1};
-          sfc::Vector<12> Kq_rpy = sfc::Vector<12>{1,1,1,5,5,1, 1,1,1,1,1,1};
+          sfc::Vector<12> Kq_rpy = sfc::Vector<12>{1,1,1,5,5,5, 1,1,1,1,1,1};
           sfc::Vector<3> Kw_rpy = sfc::Vector<3>{1,1,1};
           if (enable_sigma_rpy_task) { 
             solver.addTask(hqp::makeRollPitchYawTask(uvms_, ref_rpy, gain_rpy, Kq_rpy, Kw_rpy));
           }
 
           // Task: EE configuration
-          sfc::Vector<12> Kq_ee = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
+          sfc::Vector<12> Kq_ee = sfc::Vector<12>{5,5,5,10,10,10, 1,1,1,1,1,1};
           sfc::Vector<6> Kw_ee = sfc::Vector<6>{1,1,1,1,1,1};
+          sfc::Real manipulability = sfc::Real(0.0);
+          #ifdef DEBUG_CONTROLLER
+            sfc::Matrix<6, kSysDof> J_ee = uvms_.jacobian();
+            manipulability = sfc::cal_manipulability(J_ee);
+          #endif
           if (enable_ee_task) {
-            solver.addTask(hqp::makeEeTask(uvms_, x_ee_r, q_ee_d, gain_ee, Kq_ee,Kw_ee));
+            solver.addTask(hqp::makeEeTask(uvms_, x_ee_r, q_ee_d, gain_ee, Kq_ee, Kw_ee));
           }
           
           // Task: nominal joint configuration
           const sfc::Vector<6> gain_nominal_config{10,10,10,10,10,10};
-          sfc::Vector<12> Kq_nc = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
+          sfc::Vector<12> Kq_nc = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,5,1};
           sfc::Vector<6> Kw_nc = sfc::Vector<6>{1,1,1,1,1,1};
           if (enable_nominalconfiguration_task) {
             solver.addTask(hqp::makeNominalConfigTask(uvms_, nominal_config, gain_nominal_config, 
@@ -602,10 +608,20 @@ void GironaController::controlThread() {
           Vector<12> zeta_sat = hqp::toVector<12>(zeta_eigen);
 
           #ifdef DEBUG_CONTROLLER
-          sfc::print(zeta_sat,std::cout,"hqp velocity");
+            std::size_t idx_debug = 0;
+            sfc::print(zeta_sat,std::cout,"hqp velocity");
+            sfc::print(hqp::toVector<12>(res.slacks[idx_debug++]),std::cout,"slack system constraint");
+            sfc::print(hqp::toVector<3>(res.slacks[idx_debug++]),std::cout,"slack rpy task");
+            if (enable_ee_task) {
+              sfc::print(hqp::toVector<6>(res.slacks[idx_debug++]),std::cout,"slack ee");
+            }
+            if (enable_nominalconfiguration_task) {
+              sfc::print(hqp::toVector<6>(res.slacks[idx_debug++]),std::cout,"slack nominal config");
+            }
           #endif
-
         #endif
+
+        
 
 
         sfc::Vector6 nu_d{zeta_sat(0),zeta_sat(1),zeta_sat(2),zeta_sat(3),zeta_sat(4),zeta_sat(5)};
@@ -800,6 +816,7 @@ void GironaController::controlThread() {
           publishArray6(sensor_feedback_pub_, sensor_feedback);
           publishArray6(sensor_calibrated_pub_, sensor_feedback_calibrated);
           publishArray6(sensor_calibrated_tiplink_pub_, sensor_feedback_calibrated_ontiplink);
+          { std_msgs::Float64 msg; msg.data = manipulability; manipulability_pub_.publish(msg); }
           #ifdef USE_VARIABLE_ADMITTANCE
             publishArray6(k_stiff_pub_, K_stiff);
           #endif
@@ -949,6 +966,8 @@ void GironaController::initializeController() {
         nh_.advertise<std_msgs::Float64MultiArray>("debug/sensor_calibrated_tiplink", 10);
     k_stiff_pub_ =
         nh_.advertise<std_msgs::Float64MultiArray>("debug/k_stiff", 10);
+    manipulability_pub_ =
+        nh_.advertise<std_msgs::Float64>("debug/manipulability", 10);
   #endif
   // Placeholder for DH parameters and transforms; configure as needed by your arm.
   ROS_INFO("Initialize UVMS model from yaml file (obtained from URDF)");
