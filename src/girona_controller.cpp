@@ -331,8 +331,10 @@ void GironaController::controlThread() {
         admitance_controller_.reset(x_ee_d,q_ee_d);
       #endif
     #endif
+    #ifdef USE_HQP
+      hqp::HQPCascadedSolver solver(12);
+    #endif
     
-
 
     while (control_running_.load() && ros::ok()) {
         // get state from interface
@@ -459,12 +461,12 @@ void GironaController::controlThread() {
           enable_admittance = enable_admittance_;
         }
 
+
+        #ifdef USE_TPC
         // const sfc::Vector<6> q_min{-3*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
         // const sfc::Vector<6> q_max{ 3*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,      3.5*sfc::kPi4};
         const sfc::Vector<6> q_min{-1.5*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
         const sfc::Vector<6> q_max{ 1.5*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,      3.5*sfc::kPi4};
-        
-        
         sfc::Matrix<6, kSysDof> J_jointlimits{};
         sfc::Vector6 sigma_jointlimits{};
         if (enable_jointlimits_task) {
@@ -544,6 +546,67 @@ void GironaController::controlThread() {
             0.30, 0.30, 0.30, 0.30, 0.30, 0.30   // joint velocity limits
         };
         const sfc::Vector<kSysDof> zeta_sat = sfc::clampSymmetric<kSysDof>(zeta, zeta_abs_limit);
+        // The above is for TPC
+        #endif //USE_TPC
+
+        #ifdef USE_HQP
+          solver.clearTasks();
+          //task: Joint Limits
+          const sfc::Vector<6> q_min{-1.5*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
+          const sfc::Vector<6> q_max{ 1.5*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,      3.5*sfc::kPi4};
+          const sfc::Vector<6> dq_min{-0.2,-0.2,-0.2,-0.2,-0.2,-0.2};
+          const sfc::Vector<6> dq_max{0.2,0.2,0.2,0.2,0.2,0.2};
+          const sfc::Vector<6> nu_min{-0.1,-0.1,-0.1,-0.1,-0.1,-0.1};
+          const sfc::Vector<6> nu_max{0.1,0.1,0.1,0.1,0.1,0.1};
+
+          sfc::Vector<12> Kq_jl = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
+          sfc::Vector<12> Kw_jl = sfc::Vector<12>{1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000};
+          if (enable_jointlimits_task) { 
+            solver.addTask(hqp::makeSystemConstraintsTask(uvms_, nu_min,nu_max,
+                                                          q_min, q_max,dq_min,dq_max, Kq_jl, Kw_jl));
+          }
+
+          // sfc::Vector<2> gain_rp = sfc::Vector<2>{1,1};
+          // sfc::Vector<2> rp_ref = sfc::Vector<2>{0,0};
+          // sfc::Vector<12> Kq_rp = sfc::Vector<12>{1,1,1,5,5,1, 1,1,1,1,1,1};
+          // sfc::Vector<2> Kw_rp = sfc::Vector<2>{1,1};
+          // if (enable_sigma_rpy_task) { 
+          //   solver.addTask(hqp::makeRollPitchTask(uvms_, rp_ref, gain_rp, Kq_rp, Kw_rp));}
+
+          // Task: RPY
+          // sfc::Vector<3> gain_rpy = sfc::Vector<3>{1,1,1};
+          sfc::Vector<12> Kq_rpy = sfc::Vector<12>{1,1,1,5,5,1, 1,1,1,1,1,1};
+          sfc::Vector<3> Kw_rpy = sfc::Vector<3>{1,1,1};
+          if (enable_sigma_rpy_task) { 
+            solver.addTask(hqp::makeRollPitchYawTask(uvms_, ref_rpy, gain_rpy, Kq_rpy, Kw_rpy));
+          }
+
+          // Task: EE configuration
+          sfc::Vector<12> Kq_ee = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
+          sfc::Vector<6> Kw_ee = sfc::Vector<6>{1,1,1,1,1,1};
+          if (enable_ee_task) {
+            solver.addTask(hqp::makeEeTask(uvms_, x_ee_r, q_ee_d, gain_ee, Kq_ee,Kw_ee));
+          }
+          
+          // Task: nominal joint configuration
+          const sfc::Vector<6> gain_nominal_config{10,10,10,10,10,10};
+          sfc::Vector<12> Kq_nc = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
+          sfc::Vector<6> Kw_nc = sfc::Vector<6>{1,1,1,1,1,1};
+          if (enable_nominalconfiguration_task) {
+            solver.addTask(hqp::makeNominalConfigTask(uvms_, nominal_config, gain_nominal_config, 
+              Kq_nc,Kw_nc));
+          }
+
+          auto res = solver.solve();
+          Eigen::VectorXd zeta_eigen = res.qdot;
+          Vector<12> zeta_sat = hqp::toVector<12>(zeta_eigen);
+
+          #ifdef DEBUG_CONTROLLER
+          sfc::print(zeta_sat,std::cout,"hqp velocity");
+          #endif
+
+        #endif
+
 
         sfc::Vector6 nu_d{zeta_sat(0),zeta_sat(1),zeta_sat(2),zeta_sat(3),zeta_sat(4),zeta_sat(5)};
         sfc::Vector6 nu_error = nu_d - uvms_.vehicleVelocity();
@@ -781,10 +844,13 @@ void GironaController::controlThread() {
             logger_.logVector("v_ee_r", v_ee_r);
 
             // kinematics state variable
-            logger_.logVector("sigma_jointlimits", sigma_jointlimits);
-            logger_.logVector("sigma_rpy", sigma_rpy);
-            logger_.logVector("sigma_ee", sigma_ee);
-            logger_.logVector("sigma_nominal", sigma_nominal);
+            #ifdef USE_TPC
+              logger_.logVector("sigma_jointlimits", sigma_jointlimits);
+              logger_.logVector("sigma_rpy", sigma_rpy);
+              logger_.logVector("sigma_ee", sigma_ee);
+              logger_.logVector("sigma_nominal", sigma_nominal);
+            #endif
+
             // kinematics outputs
             logger_.logVector("nu_d", nu_d);
             logger_.logVector("dq_d", joint_velocity_desired);

@@ -209,7 +209,6 @@ inline HQPCascadedTask makeNominalConfigTask(
 }
 
 // ── Joint limit avoidance  (ArmDof inequality) ───────────────────────────
-// Per joint: lb/ub activated when distance to limit < rho.
 template <std::size_t ArmDof,
           typename ManipulatorT = sfc::ManipulatorFromYAML<ArmDof>,
           typename VehicleT    = sfc::VehicleBase>
@@ -225,6 +224,55 @@ inline HQPCascadedTask makeJointLimitTask(
     for (std::size_t i = 0; i < ArmDof; ++i) J(i, 6 + i) = sfc::Real(1);
 
     return HQPCascadedTask(toEigen(J), toEigen(q_min),  toEigen(q_max), 
+    toEigenMatrix(Kq),toEigenMatrix(Kw),
+    std::move(name));
+}
+
+template <std::size_t ArmDof,
+          typename ManipulatorT = sfc::ManipulatorFromYAML<ArmDof>,
+          typename VehicleT    = sfc::VehicleBase>
+inline HQPCascadedTask makeSystemConstraintsTask(
+    const sfc::UvmsSingleArm<ArmDof, ManipulatorT, VehicleT>& uvms,
+    const sfc::Vector<6>& nu_min,
+    const sfc::Vector<6>& nu_max,
+    const sfc::Vector<ArmDof>& q_min,
+    const sfc::Vector<ArmDof>& q_max,
+    const sfc::Vector<ArmDof>& dq_min,
+    const sfc::Vector<ArmDof>& dq_max,
+    const sfc::Vector<6 + ArmDof>& Kq,
+    const sfc::Vector<6 + ArmDof>& Kw,
+    const sfc::Real& lambda_cbf = 1.0,
+    std::string name = "system_constraint")
+{
+    sfc::Matrix<6 + ArmDof, 6 + ArmDof> J{};
+    for (std::size_t i = 0; i < 6 + ArmDof; i++) J(i, i) = sfc::Real(1); // Identity matrix
+    const sfc::Vector<ArmDof> q_now = uvms.manipulatorPosition();
+    sfc::Vector<ArmDof> dq_max_cbf =  (q_max - q_now) * lambda_cbf; 
+    for(std::size_t i = 0; i < ArmDof; i++){if (dq_max_cbf(i) < 0.0) dq_max_cbf(i) = sfc::Real(0.0);}
+
+    sfc::Vector<ArmDof> dq_min_cbf = (q_min - q_now)  * lambda_cbf; 
+    for(std::size_t i = 0; i < ArmDof; i++){if (dq_min_cbf(i) > 0.0) dq_min_cbf(i) = sfc::Real(0.0);}
+
+    sfc::Vector<ArmDof> dq_min_ = sfc::Vector<ArmDof>{0.0};
+    sfc::Vector<ArmDof> dq_max_ = sfc::Vector<ArmDof>{0.0};
+    for(std::size_t i = 0; i < ArmDof; i++){
+        if(dq_min_cbf(i) > dq_min(i)){dq_min_(i) = dq_min_cbf(i);}
+        else{dq_min_(i) = dq_min(i);}
+        if(dq_max_cbf(i) < dq_max(i)){dq_max_(i) = dq_max_cbf(i);}
+        else{dq_max_(i) = dq_max(i);}
+    }
+    sfc::Vector<6+ArmDof> zeta_max;
+    sfc::Vector<6+ArmDof> zeta_min;
+    for(std::size_t i = 0; i < 6; i++){
+        zeta_max(i) = nu_max(i);
+        zeta_min(i) = nu_min(i);
+    }
+    for(std::size_t i = 0; i < ArmDof; i++){
+        zeta_max(6+i) = dq_max(i);
+        zeta_min(6+i) = dq_min(i);
+    }
+
+    return HQPCascadedTask(toEigen(J), toEigen(zeta_min),  toEigen(zeta_max), 
     toEigenMatrix(Kq),toEigenMatrix(Kw),
     std::move(name));
 }

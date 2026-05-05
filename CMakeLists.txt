@@ -59,6 +59,7 @@ add_executable(girona_controller
   src/girona_interface.cpp
   src/thruster_allocator_qpoases.cpp
   functionlib/stsm_control/super_twisting_smc.cpp
+  functionlib/hqp/hqp_cascaded_solver.cpp
 )
 add_dependencies(girona_controller ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(girona_controller

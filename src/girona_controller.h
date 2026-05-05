@@ -43,6 +43,14 @@
 
 #include "controller_define.h"
 
+#ifdef USE_HQP
+  #include "functionlib/hqp/hqp_cascaded_solver.h"
+  #include "functionlib/hqp/hqp_tasks.h"
+  #include <iomanip>
+  #include <cassert>
+  #include <cmath>
+#endif
+
 // True models
 inline double thrust2setpoint(double f) {
   const double max_rpm = 1000.0;

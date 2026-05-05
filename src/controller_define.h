@@ -26,12 +26,15 @@
 // #define QP_ALLOCATOR_010
 // #define QP_ALLOCATOR_000
 
-  #ifdef USE_ADMITTANCE
-    #ifdef USE_VARIABLE_ADMITTANCE
-    
-    #elif defined(USE_IROS_FORCE)
-    
-    #else
-    
-    #endif
+#ifdef USE_ADMITTANCE
+  #ifdef USE_VARIABLE_ADMITTANCE
+  
+  #elif defined(USE_IROS_FORCE)
+  
+  #else
+  
   #endif
+#endif
+
+// #define USE_TPC
+#define USE_HQP
