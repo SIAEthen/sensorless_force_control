@@ -37,6 +37,12 @@ namespace hqp {
 
 static constexpr double kInf = 1e30;
 
+inline double checkBarrier(double man, double man_min) {
+  const double val = man - man_min;
+  return val;
+//   return val > 0.0 ? val : 0.0;
+}
+
 // sfc fixed-size → Eigen
 template <std::size_t R, std::size_t C>
 inline Eigen::MatrixXd toEigen(const sfc::Matrix<R, C>& m) {
@@ -177,6 +183,66 @@ inline HQPCascadedTask makeEeTask(
     std::move(name));
 }
 
+// ── End-effector pose  (6-DOF equality) ──────────────────────────────────
+template <std::size_t ArmDof,
+          typename ManipulatorT = sfc::ManipulatorFromYAML<ArmDof>,
+          typename VehicleT    = sfc::VehicleBase>
+inline HQPCascadedTask makeEeTaskWithVelocity(
+    const sfc::UvmsSingleArm<ArmDof, ManipulatorT, VehicleT>& uvms,
+    const sfc::Vector6&    vel_ref,
+    const sfc::Vector3&    pos_ref,
+    const sfc::Quaternion& q_ref,
+    const sfc::Vector<6>& gain,
+    const sfc::Vector<6 + ArmDof>& Kq,
+    const sfc::Vector<6>& Kw,
+    double sigma_threshold = 0.01,
+    double lambda_max      = 0.001,
+    double beta = 1,
+    sfc::Vector<6 + ArmDof> zeta_star = sfc::Vector<6 + ArmDof>{0},
+    std::string name = "ee_pose_withvelocity")
+{
+    sfc::Matrix<6, 6 + ArmDof> J = uvms.jacobian();
+
+    const sfc::Vector3    pos_now = uvms.endEffectorPositionNed();
+    const sfc::Quaternion q_now   = uvms.endEffectorQuaternionNed();
+    const sfc::Quaternion q_err   = sfc::quatError(q_ref, q_now);
+
+    Eigen::VectorXd b(6);
+    b(0) = static_cast<double>(gain(0) * (pos_ref(0) - pos_now(0)) + vel_ref(0));
+    b(1) = static_cast<double>(gain(1) * (pos_ref(1) - pos_now(1)) + vel_ref(1));
+    b(2) = static_cast<double>(gain(2) * (pos_ref(2) - pos_now(2)) + vel_ref(2));
+    b(3) = static_cast<double>(gain(3) * q_err.x + vel_ref(3));
+    b(4) = static_cast<double>(gain(4) * q_err.y + vel_ref(4));
+    b(5) = static_cast<double>(gain(5) * q_err.z + vel_ref(5));
+
+    // Nakamura variable DLS: λ_eff_i = λ_max·(1-(σ_i/σ_th)²) when σ_i < σ_th, else 0
+    // scale_i = σ_i²/(σ_i² + λ_eff_i²)
+    // → good directions (σ≥σ_th): scale=1, untouched
+    // → near-singular (σ→0): scale→0, smoothly suppressed
+    const Eigen::MatrixXd J_eig = toEigen(J);
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(J_eig, Eigen::ComputeThinU);
+    const Eigen::VectorXd& sigma = svd.singularValues();
+    Eigen::VectorXd scale(sigma.size());
+    for (int i = 0; i < sigma.size(); ++i) {
+        const double s = sigma(i);
+        double lam = 0.0;
+        if (s < sigma_threshold) {
+            const double r = s / sigma_threshold;
+            lam = lambda_max * (1.0 - r * r);
+        }
+        scale(i) = (s * s) / (s * s + lam * lam);
+    }
+    b = svd.matrixU() * scale.asDiagonal() * (svd.matrixU().transpose() * b);
+
+    // return HQPCascadedTask(J_eig, b,
+    // toEigenMatrix(Kq), toEigenMatrix(Kw),
+    // std::move(name));
+    return HQPCascadedTask(J_eig, beta*b+(1-beta) * J_eig * toEigen(zeta_star),
+    toEigenMatrix(Kq), toEigenMatrix(Kw),
+    std::move(name));
+}
+
+
 // ── Vehicle position  (3-DOF equality) ───────────────────────────────────
 template <std::size_t ArmDof,
           typename ManipulatorT = sfc::ManipulatorFromYAML<ArmDof>,
@@ -267,11 +333,12 @@ inline HQPCascadedTask makeSystemConstraintsTask(
     sfc::Matrix<6 + ArmDof, 6 + ArmDof> J{};
     for (std::size_t i = 0; i < 6 + ArmDof; i++) J(i, i) = sfc::Real(1); // Identity matrix
     const sfc::Vector<ArmDof> q_now = uvms.manipulatorPosition();
-    sfc::Vector<ArmDof> dq_max_cbf =  (q_max - q_now) * lambda_cbf; 
-    for(std::size_t i = 0; i < ArmDof; i++){if (dq_max_cbf(i) < 0.0) dq_max_cbf(i) = sfc::Real(0.0);}
-
-    sfc::Vector<ArmDof> dq_min_cbf = (q_min - q_now)  * lambda_cbf; 
-    for(std::size_t i = 0; i < ArmDof; i++){if (dq_min_cbf(i) > 0.0) dq_min_cbf(i) = sfc::Real(0.0);}
+    sfc::Vector<ArmDof> dq_max_cbf{};
+    sfc::Vector<ArmDof> dq_min_cbf{};
+    for (std::size_t i = 0; i < ArmDof; ++i) {
+        dq_max_cbf(i) = sfc::Real(checkBarrier(static_cast<double>(q_max(i)), static_cast<double>(q_now(i))) * static_cast<double>(lambda_cbf));
+        dq_min_cbf(i) = sfc::Real(-checkBarrier(static_cast<double>(q_now(i)), static_cast<double>(q_min(i))) * static_cast<double>(lambda_cbf));
+    }
 
     sfc::Vector<ArmDof> dq_min_ = sfc::Vector<ArmDof>{0.0};
     sfc::Vector<ArmDof> dq_max_ = sfc::Vector<ArmDof>{0.0};
@@ -296,5 +363,102 @@ inline HQPCascadedTask makeSystemConstraintsTask(
     toEigenMatrix(Kq),toEigenMatrix(Kw),
     std::move(name));
 }
+
+
+template <std::size_t ArmDof,
+          typename ManipulatorT = sfc::ManipulatorFromYAML<ArmDof>,
+          typename VehicleT    = sfc::VehicleBase>
+inline HQPCascadedTask makeSelfCollisionTask(
+    const sfc::UvmsSingleArm<ArmDof, ManipulatorT, VehicleT>& uvms,
+    const sfc::Vector<6 + ArmDof>& Kq,
+    const sfc::Vector<3>& Kw,
+    const sfc::Real& x_min = 0.8,
+    const sfc::Real& lambda_cbf = 1.0,
+    std::string name = "self_collision")
+{
+    sfc::Matrix<6, 6 + ArmDof> J_j3_B = uvms.jacobianBodyFrameN(3);
+    sfc::Matrix<6, 6 + ArmDof> J_j5_B = uvms.jacobianBodyFrameN(5);
+    sfc::Matrix<6, 6 + ArmDof> J_ee_B = uvms.jacobianBodyFrame();
+    
+    sfc::Vector3 x_j3_B = uvms.forwardKinematicsBodyFrameN(3).translation();
+    sfc::Vector3 x_j5_B = uvms.forwardKinematicsBodyFrameN(5).translation();
+    sfc::Vector3 x_ee_B = uvms.forwardKinematicsBodyFrame().translation();
+    
+    sfc::Vector<3> h_min = sfc::Vector<3>{
+                                    lambda_cbf * checkBarrier(x_j3_B(0), x_min),
+                                    lambda_cbf * checkBarrier(x_j5_B(0), x_min),
+                                    lambda_cbf * checkBarrier(x_ee_B(0), x_min)} * (-1.0);
+    sfc::Vector<3> h_max = sfc::Vector<3>{10.0,10,10};
+    sfc::Matrix<3,6+ArmDof> J_collision{};
+    for(u_int i=0;i<6+ArmDof;i++){
+        J_collision(0,i) = J_j3_B(0,i);
+        J_collision(1,i) = J_j5_B(0,i);
+        J_collision(2,i) = J_ee_B(0,i);
+    }
+    return HQPCascadedTask(toEigen<3,6+ArmDof>(J_collision), toEigen(h_min),  toEigen(h_max), 
+    toEigenMatrix(Kq),toEigenMatrix(Kw),
+    std::move(name));
+}
+
+template <std::size_t ArmDof,
+          typename ManipulatorT = sfc::ManipulatorFromYAML<ArmDof>,
+          typename VehicleT    = sfc::VehicleBase>
+inline sfc::Vector<3> getSelfCollisionDiagnostics(
+    const sfc::UvmsSingleArm<ArmDof, ManipulatorT, VehicleT>& uvms)
+{
+    sfc::Vector3 x_j3_B = uvms.forwardKinematicsBodyFrameN(3).translation();
+    sfc::Vector3 x_j5_B = uvms.forwardKinematicsBodyFrameN(5).translation();
+    sfc::Vector3 x_ee_B = uvms.forwardKinematicsBodyFrame().translation();
+    return sfc::Vector<3>{x_j3_B(0),x_j5_B(0),x_ee_B(0)};
+}
+
+
+
+template <std::size_t ArmDof,
+          typename ManipulatorT = sfc::ManipulatorFromYAML<ArmDof>,
+          typename VehicleT    = sfc::VehicleBase>
+inline HQPCascadedTask makeManipulabilityTask(
+    const sfc::UvmsSingleArm<ArmDof, ManipulatorT, VehicleT>& uvms,
+    const sfc::Vector<6 + ArmDof>& Kq,
+    const sfc::Vector<1>& Kw,
+    const sfc::Real& man_min = 0.0001,
+    const sfc::Real& lambda_cbf = 1.0,
+    std::string name = "manipulability")
+{
+    sfc::Real man = uvms.manipulatorManipulability();
+    sfc::Vector<ArmDof> J_manipulability = uvms.manipulatorManipulabilityDerivative();
+    sfc::Matrix<1, 6 + ArmDof> J_task{};
+    for(u_int i=0;i<ArmDof;i++){J_task(0,6+i) = J_manipulability(i);}
+    sfc::Vector<1> h_min = sfc::Vector<1>{-1 * lambda_cbf * checkBarrier(man, man_min)};
+    sfc::Vector<1> h_max = sfc::Vector<1>{100};
+
+
+    return HQPCascadedTask(toEigen(J_task), toEigen(h_min),  toEigen(h_max), 
+    toEigenMatrix(Kq),toEigenMatrix(Kw),
+    std::move(name));
+}
+
+
+// ── Nominal joint config  (ArmDof equality) ──────────────────────────────
+template <std::size_t ArmDof,
+          typename ManipulatorT = sfc::ManipulatorFromYAML<ArmDof>,
+          typename VehicleT    = sfc::VehicleBase>
+inline HQPCascadedTask makeZeroVelocityTask(
+    const sfc::UvmsSingleArm<ArmDof, ManipulatorT, VehicleT>& uvms,
+    const sfc::Real& Kq=1,
+    const sfc::Real& Kw=1,
+    std::string name = "zero_velocity")
+{
+    sfc::Matrix<6 + ArmDof, 6 + ArmDof> J{};
+    for (std::size_t i = 0; i < 6 + ArmDof; ++i) J(i, i) = sfc::Real(1);
+    Eigen::VectorXd lb(6 + ArmDof);
+    for (std::size_t i = 0; i < ArmDof; ++i) lb(i) = static_cast<double>(-100.0);
+    Eigen::VectorXd ub(6 + ArmDof);
+    for (std::size_t i = 0; i < ArmDof; ++i) ub(i) = static_cast<double>(100.0);
+
+    return HQPCascadedTask(toEigen(J), lb, ub, Kq, Kw,    std::move(name));
+}
+
+
 
 }  // namespace hqp

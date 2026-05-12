@@ -102,6 +102,12 @@ public:
   HomogeneousMatrix forwardKinematicsBodyFrame() const {
     return t_0_b_ * manipulator_.forwardKinematics();
   }
+  
+  HomogeneousMatrix forwardKinematicsBodyFrameN(std::size_t n) const {
+    return t_0_b_ * manipulator_.forwardKinematicsN(n);
+  }
+
+
 
   Vector3 endEffectorPositionNed() const { return forwardKinematics().translation(); }
 
@@ -110,7 +116,25 @@ public:
     return Quaternion::fromRotationMatrix(r);
   }
 
-  
+    // End-effector spatial velocity in inertial frame (NED):
+  // v_ee = J * [nu; dq]
+  Vector6 endEffectorVelocityNed() const {
+    return endEffectorVelocityNed(vehicleVelocity(), manipulatorVelocity());
+  }
+
+  // End-effector spatial velocity in inertial frame (NED), with explicit inputs.
+  Vector6 endEffectorVelocityNed(const Vector6& nu,
+                                 const Vector<kUvmsArmDof>& dq) const {
+    Vector<6 + kUvmsArmDof> uvms_vel{};
+    for (std::size_t i = 0; i < 6; ++i) {
+      uvms_vel(i) = nu(i);
+    }
+    for (std::size_t i = 0; i < kUvmsArmDof; ++i) {
+      uvms_vel(6 + i) = dq(i);
+    }
+    return jacobian() * uvms_vel;
+  }
+
 
   UvmsJacobian jacobian() const {
     const RotationMatrix r_b_ned =
@@ -161,6 +185,50 @@ public:
     return vstack(j_linear, j_angular);
   }
 
+
+  UvmsJacobian jacobianBodyFrame() const {
+    const Vector3 p_b0_b =
+        t_0_b_.translation();
+    const RotationMatrix r_0_b =
+        t_0_b_.rotation();
+    const typename Manipulator::Jacobian j_man = manipulator_.jacobian();
+    Matrix<3, kUvmsArmDof> j_man_pos{};
+    Matrix<3, kUvmsArmDof> j_man_ori{};
+    for (std::size_t col = 0; col < kUvmsArmDof; ++col) {
+      for (std::size_t row = 0; row < 3; ++row) {
+        j_man_pos(row, col) = j_man(row, col);
+        j_man_ori(row, col) = j_man(row + 3, col);
+      }
+    }
+    const Matrix<3, kUvmsArmDof> j_pos = r_0_b.m * j_man_pos;
+    const Matrix<3, kUvmsArmDof> j_ori = r_0_b.m * j_man_ori;
+    const auto j_linear =
+        hstack(hstack(zeros<3, 3>(),zeros<3, 3>()), j_pos);
+    const auto j_angular =
+        hstack(hstack(zeros<3, 3>(), zeros<3, 3>()), j_ori);
+    return vstack(j_linear, j_angular);
+  }
+
+  // Body-frame Jacobian for first n joints (6×(6+ArmDof)), arm columns n+ are zero.
+  UvmsJacobian jacobianBodyFrameN(std::size_t n) const {
+    const RotationMatrix r_0_b = t_0_b_.rotation();
+    const typename Manipulator::Jacobian j_man = manipulator_.jacobianN(n);
+    Matrix<3, kUvmsArmDof> j_man_pos{};
+    Matrix<3, kUvmsArmDof> j_man_ori{};
+    for (std::size_t col = 0; col < kUvmsArmDof; ++col) {
+      for (std::size_t row = 0; row < 3; ++row) {
+        j_man_pos(row, col) = j_man(row, col);
+        j_man_ori(row, col) = j_man(row + 3, col);
+      }
+    }
+    const Matrix<3, kUvmsArmDof> j_pos = r_0_b.m * j_man_pos;
+    const Matrix<3, kUvmsArmDof> j_ori = r_0_b.m * j_man_ori;
+    const auto j_linear  = hstack(hstack(zeros<3, 3>(), zeros<3, 3>()), j_pos);
+    const auto j_angular = hstack(hstack(zeros<3, 3>(), zeros<3, 3>()), j_ori);
+    return vstack(j_linear, j_angular);
+  }
+
+
   Matrix<6,6> jacobian_first6collumns() const {
     const RotationMatrix r_b_ned =
         vehicle_.getRotationMatrixBaseToInertial();
@@ -194,25 +262,11 @@ public:
     return vstack(j_linear, j_angular);
   }
 
-  // End-effector spatial velocity in inertial frame (NED):
-  // v_ee = J * [nu; dq]
-  Vector6 endEffectorVelocityNed() const {
-    return endEffectorVelocityNed(vehicleVelocity(), manipulatorVelocity());
-  }
-
-  // End-effector spatial velocity in inertial frame (NED), with explicit inputs.
-  Vector6 endEffectorVelocityNed(const Vector6& nu,
-                                 const Vector<kUvmsArmDof>& dq) const {
-    Vector<6 + kUvmsArmDof> uvms_vel{};
-    for (std::size_t i = 0; i < 6; ++i) {
-      uvms_vel(i) = nu(i);
-    }
-    for (std::size_t i = 0; i < kUvmsArmDof; ++i) {
-      uvms_vel(6 + i) = dq(i);
-    }
-    return jacobian() * uvms_vel;
-  }
-
+  // w = sqrt(det(J J^T))
+  Real manipulatorManipulability() const {     return manipulator_.manipulability();}
+  
+  // Jacobian [pian w/pian q1 pian w/pian q2 pian w/pian q3 ...]
+  sfc::Vector<kUvmsArmDof> manipulatorManipulabilityDerivative() const { return manipulator_.manipulabilityGradient(); }
 
 private:
   Vehicle vehicle_;

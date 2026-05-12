@@ -96,8 +96,13 @@ public:
 
     HQPCascadedResult solve() const;
 
+    // Symmetric-slack solver: σ_min - w <= J*ζ <= σ_max + w, w >= 0.
+    // Slack only relaxes bounds (never tightens), suitable for CBF/inequality tasks.
+    HQPCascadedResult solveRelaxed() const;
+
     int nTasks() const { return static_cast<int>(tasks_.size()); }
     int nQdot()  const { return n_q_; }
+    const std::string& taskName(int i) const { return tasks_.at(i).name; }
 
 private:
     int n_q_;

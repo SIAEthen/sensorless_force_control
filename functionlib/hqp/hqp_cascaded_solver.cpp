@@ -157,4 +157,123 @@ HQPCascadedResult HQPCascadedSolver::solve() const {
     return result;
 }
 
+HQPCascadedResult HQPCascadedSolver::solveRelaxed() const {
+    HQPCascadedResult result;
+    result.qdot = Eigen::VectorXd::Zero(n_q_);
+    result.success = true;
+
+    if (tasks_.empty()) return result;
+
+    const double INF = 1e30;
+
+    std::vector<Eigen::MatrixXd> J_prev;
+    std::vector<Eigen::VectorXd> lb_tight, ub_tight;
+    int n_prev_c = 0;
+
+    for (int i = 0; i < static_cast<int>(tasks_.size()); ++i) {
+        const HQPCascadedTask& task = tasks_[i];
+        const int m_i = static_cast<int>(task.J.rows());
+        const int n_z  = n_q_ + m_i;
+        // Each task adds 2*m_i rows: [J,I] for lower bound, [J,-I] for upper bound.
+        const int n_c  = n_prev_c + 2 * m_i;
+
+        // H = diag(Qq, 2*Qw)
+        Eigen::MatrixXd H = Eigen::MatrixXd::Zero(n_z, n_z);
+        H.topLeftCorner(n_q_, n_q_)   = task.Qq;
+        H.bottomRightCorner(m_i, m_i) = 2.0 * task.Qw;
+
+        // Constraint matrix A (n_c x n_z)
+        Eigen::MatrixXd A = Eigen::MatrixXd::Zero(n_c, n_z);
+        Eigen::VectorXd lbA = Eigen::VectorXd::Constant(n_c, -INF);
+        Eigen::VectorXd ubA = Eigen::VectorXd::Constant(n_c,  INF);
+
+        // Previous task tight constraints: J_k*ζ ∈ [lb_tight_k, ub_tight_k]
+        int row = 0;
+        for (int k = 0; k < i; ++k) {
+            const int m_k = static_cast<int>(J_prev[k].rows());
+            A.block(row, 0, m_k, n_q_) = J_prev[k];
+            lbA.segment(row, m_k) = lb_tight[k];
+            ubA.segment(row, m_k) = ub_tight[k];
+            row += m_k;
+        }
+
+        // Current task: lower block [J, +I]*z >= lb  →  J*ζ + w >= lb
+        A.block(row,       0,    m_i, n_q_) = task.J;
+        A.block(row,       n_q_, m_i, m_i)  =  Eigen::MatrixXd::Identity(m_i, m_i);
+        lbA.segment(row, m_i) = task.lb;   // ubA already +INF
+
+        // Current task: upper block [J, -I]*z <= ub  →  J*ζ - w <= ub
+        A.block(row + m_i, 0,    m_i, n_q_) = task.J;
+        A.block(row + m_i, n_q_, m_i, m_i)  = -Eigen::MatrixXd::Identity(m_i, m_i);
+        ubA.segment(row + m_i, m_i) = task.ub;   // lbA already -INF
+
+        // Variable bounds: ζ optionally bounded; w >= 0
+        Eigen::VectorXd lb_z = Eigen::VectorXd::Constant(n_z, -INF);
+        Eigen::VectorXd ub_z = Eigen::VectorXd::Constant(n_z,  INF);
+        if (has_qdot_bounds_) {
+            lb_z.head(n_q_) = qdot_lb_;
+            ub_z.head(n_q_) = qdot_ub_;
+        }
+        lb_z.tail(m_i) = Eigen::VectorXd::Zero(m_i);   // w >= 0
+
+        std::vector<qpOASES::real_t> H_rm(n_z * n_z), A_rm(n_c * n_z);
+        std::vector<qpOASES::real_t> g_rm(n_z, 0.0);
+        std::vector<qpOASES::real_t> lb_z_rm(n_z), ub_z_rm(n_z);
+        std::vector<qpOASES::real_t> lbA_rm(n_c), ubA_rm(n_c);
+
+        toRowMajor(H, H_rm.data());
+        toRowMajor(A, A_rm.data());
+        toArray(lb_z, lb_z_rm.data());
+        toArray(ub_z, ub_z_rm.data());
+        toArray(lbA,  lbA_rm.data());
+        toArray(ubA,  ubA_rm.data());
+
+        qpOASES::QProblem qp(n_z, n_c);
+        qpOASES::Options opts;
+        opts.setToDefault();
+        opts.printLevel = qpOASES::PL_NONE;
+        qp.setOptions(opts);
+
+        int nWSR = task.maxWSR;
+        qpOASES::returnValue ret = qp.init(
+            H_rm.data(), g_rm.data(), A_rm.data(),
+            lb_z_rm.data(), ub_z_rm.data(),
+            lbA_rm.data(), ubA_rm.data(),
+            nWSR);
+
+        const bool ok = (ret == qpOASES::SUCCESSFUL_RETURN ||
+                         ret == qpOASES::RET_MAX_NWSR_REACHED);
+        result.level_success.push_back(ok);
+
+        if (!ok) {
+            result.success = false;
+            result.slacks.push_back(Eigen::VectorXd::Zero(m_i));
+            J_prev.push_back(task.J);
+            lb_tight.push_back(task.lb);
+            ub_tight.push_back(task.ub);
+            n_prev_c += 2 * m_i;
+            continue;
+        }
+
+        std::vector<qpOASES::real_t> z(n_z);
+        qp.getPrimalSolution(z.data());
+
+        for (int k = 0; k < n_q_; ++k)
+            result.qdot(k) = static_cast<double>(z[k]);
+
+        Eigen::VectorXd w_i(m_i);
+        for (int k = 0; k < m_i; ++k)
+            w_i(k) = static_cast<double>(z[n_q_ + k]);
+        result.slacks.push_back(w_i);
+
+        J_prev.push_back(task.J);
+        // Tight bounds: J*ζ ∈ [lb - w*, ub + w*]  (w* >= 0, so ub widens)
+        lb_tight.push_back(task.lb - w_i);
+        ub_tight.push_back(task.ub + w_i);
+        n_prev_c += 2 * m_i;
+    }
+
+    return result;
+}
+
 }  // namespace hqp

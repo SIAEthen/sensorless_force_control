@@ -12,6 +12,7 @@
 
 #include "manipulator_base.h"
 #include "utilts/rotation.h"
+#include "utilts/robot_math.h"
 
 namespace sfc {
 
@@ -147,20 +148,12 @@ class ManipulatorFromYAML : public ManipulatorBase<Dof> {
 
   HomogeneousMatrix forwardKinematics() const override {
     ensureInitialized();
-    HomogeneousMatrix t = HomogeneousMatrix::identity();
-
-    for (std::size_t i = 0; i < Dof; ++i) {
-      t = t * joint_transforms_[i];
-
-      const JointParam& param = joint_params_[i];
-      if (param.type == JointMotionType::kRevolute) {
-        const RotationMatrix r = detail::rotationFromAxisAngle(joint_axes_[i], this->state_.q[i]);
-        t = t * HomogeneousMatrix::fromRotationTranslation(r, Vector3{0.0, 0.0, 0.0});
-      } else if (param.type == JointMotionType::kPrismatic) {
-        t = t * detail::transformFromAxisTranslation(joint_axes_[i], this->state_.q[i]);
-      }
-    }
-    return t* this->toolTransformation();
+    return forwardKinematicsFromQ(this->state_.q);
+  }
+  // Forward kinematics up to joint n (0-based count). Tip = frame n, no tool transform.
+  HomogeneousMatrix forwardKinematicsN(std::size_t n) const {
+    ensureInitialized();
+    return forwardKinematicsNFromQ(this->state_.q, n);
   }
 
   std::array<HomogeneousMatrix, Dof + 1> jointTransforms() const {
@@ -188,68 +181,147 @@ class ManipulatorFromYAML : public ManipulatorBase<Dof> {
 
   Jacobian jacobian() const override {
     ensureInitialized();
+    return jacobianFromQ(this->state_.q);
+  }
 
+  // Jacobian for first n joints (6×Dof), columns n..Dof-1 are zero.
+  Jacobian jacobianN(std::size_t n) const {
+    ensureInitialized();
+    return jacobianNFromQ(this->state_.q, n);
+  }
+
+  // Manipulability using full Jacobian (all joints + tool link).
+  sfc::Real manipulability() const {
+    ensureInitialized();
+    const Jacobian j = jacobian();
+    const sfc::Matrix<6, 6> JJT = j * j.transpose();
+    const sfc::Real d = sfc::determinant(JJT);
+    return d > sfc::Real(0) ? std::sqrt(d) : sfc::Real(0);
+  }
+
+  // Numerical gradient of manipulability for all joints, tip includes tool link.
+  sfc::Vector<Dof> manipulabilityGradient(sfc::Real delta = sfc::Real(1e-5)) const {
+    ensureInitialized();
+    sfc::Vector<Dof> grad{};
+    std::array<sfc::Real, Dof> q = this->state_.q;
+    for (std::size_t i = 0; i < Dof; ++i) {
+      q[i] += delta;
+      const Jacobian jp = jacobianFromQ(q);
+      const sfc::Real wp = [&]{ const sfc::Real d = sfc::determinant(jp * jp.transpose());
+                                 return d > sfc::Real(0) ? std::sqrt(d) : sfc::Real(0); }();
+      q[i] -= 2 * delta;
+      const Jacobian jm = jacobianFromQ(q);
+      const sfc::Real wm = [&]{ const sfc::Real d = sfc::determinant(jm * jm.transpose());
+                                 return d > sfc::Real(0) ? std::sqrt(d) : sfc::Real(0); }();
+      q[i] += delta;
+      grad(i) = (wp - wm) / (2 * delta);
+    }
+    return grad;
+  }
+
+
+ private:
+  // Full Jacobian from explicit q, tip includes tool link (mirrors jacobian()).
+  Jacobian jacobianFromQ(const std::array<sfc::Real, Dof>& q) const {
     std::array<Vector3, Dof + 1> origins{};
     std::array<Vector3, Dof> axes{};
-
     HomogeneousMatrix t = HomogeneousMatrix::identity();
     origins[0] = t.translation();
-
     for (std::size_t i = 0; i < Dof; ++i) {
       t = t * joint_transforms_[i];
-
-      const RotationMatrix r = t.rotation();
       const Vector3 axis = joint_axes_[i];
-      const Vector3 axis_base{r(0, 0) * axis(0) + r(0, 1) * axis(1) + r(0, 2) * axis(2),
-                              r(1, 0) * axis(0) + r(1, 1) * axis(1) + r(1, 2) * axis(2),
-                              r(2, 0) * axis(0) + r(2, 1) * axis(1) + r(2, 2) * axis(2)};
-      axes[i] = axis_base;
-
-      const JointParam& param = joint_params_[i];
-      if (param.type == JointMotionType::kRevolute) {
-        const RotationMatrix r_joint = detail::rotationFromAxisAngle(axis, this->state_.q[i]);
-        t = t * HomogeneousMatrix::fromRotationTranslation(r_joint, Vector3{0.0, 0.0, 0.0});
-      } else if (param.type == JointMotionType::kPrismatic) {
-        t = t * detail::transformFromAxisTranslation(axis, this->state_.q[i]);
+      axes[i] = t.rotation() * axis;
+      if (joint_params_[i].type == JointMotionType::kRevolute) {
+        t = t * HomogeneousMatrix::fromRotationTranslation(
+                    detail::rotationFromAxisAngle(axis, q[i]), Vector3{});
+      } else if (joint_params_[i].type == JointMotionType::kPrismatic) {
+        t = t * detail::transformFromAxisTranslation(axis, q[i]);
       }
       origins[i + 1] = t.translation();
     }
-
-    HomogeneousMatrix t_tip = t * this->toolTransformation();
-    const Vector3 o_tip = t_tip.translation();
-
+    const Vector3 o_tip = (t * this->toolTransformation()).translation();
     Jacobian j{};
     for (std::size_t i = 0; i < Dof; ++i) {
-      const JointParam& param = joint_params_[i];
-      if (param.type == JointMotionType::kPrismatic) {
-        j(0, i) = axes[i](0);
-        j(1, i) = axes[i](1);
-        j(2, i) = axes[i](2);
-        j(3, i) = 0.0;
-        j(4, i) = 0.0;
-        j(5, i) = 0.0;
-      } else if (param.type == JointMotionType::kRevolute) {
+      if (joint_params_[i].type == JointMotionType::kPrismatic) {
+        j(0, i) = axes[i](0); j(1, i) = axes[i](1); j(2, i) = axes[i](2);
+      } else if (joint_params_[i].type == JointMotionType::kRevolute) {
         const Vector3 p = o_tip - origins[i];
         const Vector3 jv = cross(axes[i], p);
-        j(0, i) = jv(0);
-        j(1, i) = jv(1);
-        j(2, i) = jv(2);
-        j(3, i) = axes[i](0);
-        j(4, i) = axes[i](1);
-        j(5, i) = axes[i](2);
-      } else {
-        j(0, i) = 0.0;
-        j(1, i) = 0.0;
-        j(2, i) = 0.0;
-        j(3, i) = 0.0;
-        j(4, i) = 0.0;
-        j(5, i) = 0.0;
+        j(0, i) = jv(0); j(1, i) = jv(1); j(2, i) = jv(2);
+        j(3, i) = axes[i](0); j(4, i) = axes[i](1); j(5, i) = axes[i](2);
       }
     }
     return j;
   }
 
- private:
+  // Core Jacobian computation from an explicit q array (used for numerical differentiation).
+  Jacobian jacobianNFromQ(const std::array<sfc::Real, Dof>& q, std::size_t n) const {
+    if (n > Dof) n = Dof;
+    std::array<Vector3, Dof + 1> origins{};
+    std::array<Vector3, Dof> axes{};
+    HomogeneousMatrix t = HomogeneousMatrix::identity();
+    origins[0] = t.translation();
+    for (std::size_t i = 0; i < n; ++i) {
+      t = t * joint_transforms_[i];
+      const Vector3 axis = joint_axes_[i];
+      axes[i] = t.rotation() * axis;
+      if (joint_params_[i].type == JointMotionType::kRevolute) {
+        t = t * HomogeneousMatrix::fromRotationTranslation(
+                    detail::rotationFromAxisAngle(axis, q[i]), Vector3{});
+      } else if (joint_params_[i].type == JointMotionType::kPrismatic) {
+        t = t * detail::transformFromAxisTranslation(axis, q[i]);
+      }
+      origins[i + 1] = t.translation();
+    }
+    const Vector3 o_tip = origins[n];
+    Jacobian j{};
+    for (std::size_t i = 0; i < n; ++i) {
+      if (joint_params_[i].type == JointMotionType::kPrismatic) {
+        j(0, i) = axes[i](0); j(1, i) = axes[i](1); j(2, i) = axes[i](2);
+      } else if (joint_params_[i].type == JointMotionType::kRevolute) {
+        const Vector3 p = o_tip - origins[i];
+        const Vector3 jv = cross(axes[i], p);
+        j(0, i) = jv(0); j(1, i) = jv(1); j(2, i) = jv(2);
+        j(3, i) = axes[i](0); j(4, i) = axes[i](1); j(5, i) = axes[i](2);
+      }
+    }
+    return j;
+  }
+
+  // Full forward kinematics from explicit q (mirrors forwardKinematics()).
+  HomogeneousMatrix forwardKinematicsFromQ(const std::array<sfc::Real, Dof>& q) const {
+    HomogeneousMatrix t = HomogeneousMatrix::identity();
+    for (std::size_t i = 0; i < Dof; ++i) {
+      t = t * joint_transforms_[i];
+      if (joint_params_[i].type == JointMotionType::kRevolute) {
+        t = t * HomogeneousMatrix::fromRotationTranslation(
+                    detail::rotationFromAxisAngle(joint_axes_[i], q[i]),
+                    Vector3{0.0, 0.0, 0.0});
+      } else if (joint_params_[i].type == JointMotionType::kPrismatic) {
+        t = t * detail::transformFromAxisTranslation(joint_axes_[i], q[i]);
+      }
+    }
+    return t * this->toolTransformation();
+  }
+
+  // First-n joints forward kinematics from explicit q (mirrors forwardKinematicsN()).
+  HomogeneousMatrix forwardKinematicsNFromQ(const std::array<sfc::Real, Dof>& q,
+                                             std::size_t n) const {
+    if (n > Dof) n = Dof;
+    HomogeneousMatrix t = HomogeneousMatrix::identity();
+    for (std::size_t i = 0; i < n; ++i) {
+      t = t * joint_transforms_[i];
+      if (joint_params_[i].type == JointMotionType::kRevolute) {
+        t = t * HomogeneousMatrix::fromRotationTranslation(
+                    detail::rotationFromAxisAngle(joint_axes_[i], q[i]),
+                    Vector3{0.0, 0.0, 0.0});
+      } else if (joint_params_[i].type == JointMotionType::kPrismatic) {
+        t = t * detail::transformFromAxisTranslation(joint_axes_[i], q[i]);
+      }
+    }
+    return t;
+  }
+
   void ensureInitialized() const {
     if (!initialized_) {
       throw std::runtime_error("ManipulatorFromYAML not initialized. Call setParametersFromFile().");

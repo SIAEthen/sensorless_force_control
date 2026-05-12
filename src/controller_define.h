@@ -38,3 +38,4 @@
 
 // #define USE_TPC
 #define USE_HQP
+#define USE_HQP_JOJO

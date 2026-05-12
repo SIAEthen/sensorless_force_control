@@ -44,4 +44,5 @@ sfc::Real cal_manipulability(const sfc::Matrix<R, C>& Jacobian) {
     return std::sqrt(d);
 }
 
+
 }  // namespace sfc

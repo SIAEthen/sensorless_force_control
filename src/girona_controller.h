@@ -291,9 +291,12 @@ class GironaController {
   bool enable_arm_command_{true};
   bool enable_logging_{true};
   bool enable_jointlimits_task_{true};
+  bool enable_self_collision_task_{true};
+  bool enable_manipulability_task_{true};
   bool enable_sigma_rpy_task_{true};
   bool enable_ee_task_{true};
   bool enable_nominalconfiguration_task_{true};
+  bool enable_zero_velocity_task_{true};
   bool enable_admittance_{false};
 
   ros::AsyncSpinner spinner_;

@@ -92,7 +92,7 @@ int main() {
 
   sfc::VehicleBase::State vehicle_state{};
   vehicle_state.position = {};
-  vehicle_state.velocity = {};
+  vehicle_state.velocity = {1,1,1,1,1,1};
   uvms.setVehicleState(vehicle_state);
 
   sfc::UvmsSingleArm<kArmDof>::Manipulator::State manip_state{};
@@ -114,30 +114,43 @@ int main() {
   const int n = 12; // uvms 12 dof
   hqp::HQPCascadedSolver solver(n);
   solver.clearTasks();
-  //task: Joint Limits
-  sfc::Vector<6> q_min = sfc::Vector<6>{-1,-1,-1,-1,-1,-1};
-  sfc::Vector<6> q_max = sfc::Vector<6>{1,1,1,1,1,1};
+//task: Joint Limits
+  const sfc::Vector<6> q_min{-1.5*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
+  const sfc::Vector<6> q_max{ 1.5*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,      3.5*sfc::kPi4};
+  const sfc::Vector<6> dq_min{-0.30, -0.30, -0.30, -0.30, -0.30, -0.30};
+  const sfc::Vector<6> dq_max{0.30, 0.30, 0.30, 0.30, 0.30, 0.30};
+  const sfc::Vector<6> nu_min{-0.10,-0.10,-0.10,-0.10,-0.10,-0.10};
+  const sfc::Vector<6> nu_max{0.10,0.10,0.10,0.10,0.10,0.10};
   sfc::Vector<12> Kq_jl = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
-  sfc::Vector<6> Kw_jl = sfc::Vector<6>{1000,1000,1000,1000,1000,1000};
-  solver.addTask(hqp::makeJointLimitTask(uvms, q_min, q_max, Kq_jl, Kw_jl));
+  sfc::Vector<12> Kw_jl = sfc::Vector<12>{1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000};
+
+  solver.addTask(hqp::makeSystemConstraintsTask(uvms, nu_min,nu_max,
+                                                  q_min, q_max,dq_min,dq_max, Kq_jl, Kw_jl));
+
 
   sfc::Vector<2> gain_rp = sfc::Vector<2>{1,1};
-  sfc::Vector<2> rp_ref = sfc::Vector<2>{0,0};
+  sfc::Vector<2> rp_ref = sfc::Vector<2>{0,0.5};
   sfc::Vector<12> Kq_rp = sfc::Vector<12>{1,1,1,5,5,1, 1,1,1,1,1,1};
   sfc::Vector<2> Kw_rp = sfc::Vector<2>{1,1};
   solver.addTask(hqp::makeRollPitchTask(uvms, rp_ref, gain_rp, Kq_rp, Kw_rp));
 
   sfc::Vector<6> gain_ee = sfc::Vector<6>{1,1,1,1,1,1};
-  const sfc::Vector3 pos_ref = uvms.endEffectorPositionNed();
+  const sfc::Vector3 pos_ref = uvms.endEffectorPositionNed()+sfc::Vector3{1,1,1};
   const sfc::Quaternion q_ref = uvms.endEffectorQuaternionNed();
   sfc::Vector<12> Kq_ee = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
   sfc::Vector<6> Kw_ee = sfc::Vector<6>{1,1,1,1,1,1};
   solver.addTask(hqp::makeEeTask(uvms, pos_ref, q_ref, gain_ee,Kq_ee,Kw_ee));
 
-  
+  solver.addTask(hqp::makeZeroVelocityTask(uvms,1,10));
+
   auto res = solver.solve();
   Eigen::VectorXd zeta_eigen = res.qdot;
   sfc::print(hqp::toVector<12>(zeta_eigen),std::cout,"zeta_hqp");
+
+  for (std::size_t lvl = 0; lvl < res.slacks.size(); ++lvl) {
+    const Eigen::VectorXd& w = res.slacks[lvl];
+    std::cout << "slack[" << lvl << "] (size=" << w.size() << "): " << w.transpose() << "\n";
+  }
 
 
   return 0;

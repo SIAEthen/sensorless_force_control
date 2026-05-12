@@ -226,9 +226,12 @@ void GironaController::admittanceReconfigCb(sensorless_force_control::Admittance
     enable_arm_command_ = config.enable_arm_command;
     enable_logging_ = config.enable_logging;
     enable_jointlimits_task_ = config.enable_jointlimits_task;
+    enable_self_collision_task_ = config.enable_self_collision_task;
+    enable_manipulability_task_ = config.enable_manipulability_task;
     enable_sigma_rpy_task_ = config.enable_sigma_rpy_task;
     enable_ee_task_ = config.enable_ee_task;
     enable_nominalconfiguration_task_ = config.enable_nominalconfiguration_task;
+    enable_zero_velocity_task_ = config.enable_zero_velocity_task;
     enable_admittance_ = config.enable_admittance;
   }
 }
@@ -333,6 +336,8 @@ void GironaController::controlThread() {
     #endif
     #ifdef USE_HQP
       hqp::HQPCascadedSolver solver(12);
+      double beta_ee = 0;
+      sfc::Vector<12> zeta_star = {};
     #endif
     
 
@@ -414,7 +419,7 @@ void GironaController::controlThread() {
         t2.transform.rotation.z = q_ee_d.z;
 
         tf_broadcaster_r_.sendTransform(t2);
-
+        
         
         
         
@@ -436,9 +441,12 @@ void GironaController::controlThread() {
         bool enable_arm_command = true;
         bool enable_logging = true;
         bool enable_jointlimits_task = true;
+        bool enable_self_collision_task = true;
+        bool enable_manipulability_task = true;
         bool enable_sigma_rpy_task = true;
         bool enable_ee_task = true;
         bool enable_nominalconfiguration_task = true;
+        bool enable_zero_velocity_task = true;
         bool enable_admittance = false;
         {
           std::lock_guard<std::mutex> lock(kin_config_mutex_);
@@ -455,9 +463,12 @@ void GironaController::controlThread() {
           enable_arm_command = enable_arm_command_;
           enable_logging = enable_logging_;
           enable_jointlimits_task = enable_jointlimits_task_;
+          enable_self_collision_task = enable_self_collision_task_;
+          enable_manipulability_task = enable_manipulability_task_;
           enable_sigma_rpy_task = enable_sigma_rpy_task_;
           enable_ee_task = enable_ee_task_;
           enable_nominalconfiguration_task = enable_nominalconfiguration_task_;
+          enable_zero_velocity_task = enable_zero_velocity_task_;
           enable_admittance = enable_admittance_;
         }
 
@@ -566,6 +577,23 @@ void GironaController::controlThread() {
             solver.addTask(hqp::makeSystemConstraintsTask(uvms_, nu_min,nu_max,
                                                           q_min, q_max,dq_min,dq_max, Kq_jl, Kw_jl));
           }
+          
+          // self collision
+          sfc::Vector<12> Kq_sc = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
+          sfc::Vector<3> Kw_sc = sfc::Vector<3>{1000,1000,1000};
+          sfc::Vector3 collision_variables = hqp::getSelfCollisionDiagnostics(uvms_);
+          if (enable_self_collision_task) {
+            solver.addTask(hqp::makeSelfCollisionTask(uvms_, Kq_sc, Kw_sc));
+          }
+
+          // Manipulability
+          sfc::Vector<12> Kq_man = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
+          sfc::Vector<1> Kw_man = sfc::Vector<1>{10};
+          // man 0.01 is very big. 0.001 is small (q=0), but still ok
+          sfc::Real manipulability = uvms_.manipulatorManipulability();
+          if (enable_manipulability_task) {
+            solver.addTask(hqp::makeManipulabilityTask(uvms_, Kq_man, Kw_man,0.005,1000.0));
+          }
 
           // sfc::Vector<2> gain_rp = sfc::Vector<2>{1,1};
           // sfc::Vector<2> rp_ref = sfc::Vector<2>{0,0};
@@ -583,40 +611,84 @@ void GironaController::controlThread() {
           }
 
           // Task: EE configuration
-          sfc::Vector<12> Kq_ee = sfc::Vector<12>{5,5,5,10,10,10, 1,1,1,1,1,1};
+
+          sfc::Vector<12> Kq_ee = sfc::Vector<12>{5,5,5,100,10,10, 3,3,3,2,2,1};
           sfc::Vector<6> Kw_ee = sfc::Vector<6>{1,1,1,1,1,1};
-          sfc::Real manipulability = sfc::Real(0.0);
-          #ifdef DEBUG_CONTROLLER
-            sfc::Matrix<6, kSysDof> J_ee = uvms_.jacobian();
-            manipulability = sfc::cal_manipulability(J_ee);
-          #endif
-          if (enable_ee_task) {
-            solver.addTask(hqp::makeEeTask(uvms_, x_ee_r, q_ee_d, gain_ee, Kq_ee, Kw_ee));
-          }
+          // double alpha = 0.95;
+          // if(enable_ee_task){
+          //   beta_ee = alpha * beta_ee + (1-alpha) * 1;
+          // }
+          // else{
+          //   beta_ee = alpha * beta_ee + (1-alpha) * 0;
+          // }
+          // if(fabs(beta_ee)>0.001){
+          //   solver.addTask(hqp::makeEeTaskWithVelocity(uvms_, v_ee_d, x_ee_r, q_ee_d, 
+          //                                             gain_ee, Kq_ee, Kw_ee,
+          //                                             0.01,0.001,
+          //                                             beta_ee,zeta_star));
+          // }
+          
+
+          if (enable_ee_task){
+            // solver.addTask(hqp::makeEeTask(uvms_, x_ee_r, q_ee_d, gain_ee, Kq_ee, Kw_ee));
+            solver.addTask(hqp::makeEeTaskWithVelocity(uvms_, v_ee_d, x_ee_r, q_ee_d, 
+                                                        gain_ee, Kq_ee, Kw_ee));}
+          
           
           // Task: nominal joint configuration
-          const sfc::Vector<6> gain_nominal_config{10,10,10,10,10,10};
+          const sfc::Vector<6> gain_nominal_config{1,1,1,1,1,1};
           sfc::Vector<12> Kq_nc = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,5,1};
-          sfc::Vector<6> Kw_nc = sfc::Vector<6>{1,1,1,1,1,1};
+          // set joint 6 slack variable gain as 0, it means it doesnt matter
+          sfc::Vector<6> Kw_nc = sfc::Vector<6>{1,1,1,1,1,0.1};
           if (enable_nominalconfiguration_task) {
             solver.addTask(hqp::makeNominalConfigTask(uvms_, nominal_config, gain_nominal_config, 
               Kq_nc,Kw_nc));
           }
 
+          // Task: Zero velocity task, velocity penalty
+          if (enable_zero_velocity_task) {
+            solver.addTask(hqp::makeZeroVelocityTask(uvms_,1,10));
+          }
+
+          // Fixed-size slack variables, zero by default if task not active.
+          sfc::Vector<12> slack_system_constraint{};
+          sfc::Vector<3>  slack_self_collision{};
+          sfc::Vector<1>  slack_manipulability{};
+          sfc::Vector<3>  slack_roll_pitch_yaw{};
+          sfc::Vector<6>  slack_ee_pose{};
+          sfc::Vector<6>  slack_nominal_config{};
+          sfc::Vector<12> slack_zero_velocity{};
+
+          // auto res = solver.solveRelaxed();
           auto res = solver.solve();
           Eigen::VectorXd zeta_eigen = res.qdot;
           Vector<12> zeta_sat = hqp::toVector<12>(zeta_eigen);
+          // if(fabs(beta_ee-1)<0.00001){
+          //   zeta_star = zeta_sat;
+          // }
+          // if(fabs(beta_ee)<0.000001){
+          //   zeta_star = zeta_sat;
+          // }
+
+          for (std::size_t lvl = 0; lvl < res.slacks.size(); ++lvl) {
+            const std::string& tn = solver.taskName(lvl);
+            const Eigen::VectorXd& w = res.slacks[lvl];
+            if      (tn == "system_constraint"    && w.size() == 12) { for (int i=0;i<12;++i) slack_system_constraint(i) = w(i); }
+            else if (tn == "self_collision"        && w.size() ==  3) { for (int i=0;i< 3;++i) slack_self_collision(i)    = w(i); }
+            else if (tn == "manipulability"        && w.size() ==  1) { slack_manipulability(0) = w(0); }
+            else if (tn == "roll_pitch_yaw"        && w.size() ==  3) { for (int i=0;i< 3;++i) slack_roll_pitch_yaw(i)   = w(i); }
+            else if (tn == "ee_pose_withvelocity"  && w.size() ==  6) { for (int i=0;i< 6;++i) slack_ee_pose(i)          = w(i); }
+            else if (tn == "nominal_config"        && w.size() ==  6) { for (int i=0;i< 6;++i) slack_nominal_config(i)   = w(i); }
+            else if (tn == "zero_velocity"         && w.size() == 12) { for (int i=0;i<12;++i) slack_zero_velocity(i)    = w(i); }
+          }
 
           #ifdef DEBUG_CONTROLLER
             std::size_t idx_debug = 0;
             sfc::print(zeta_sat,std::cout,"hqp velocity");
-            sfc::print(hqp::toVector<12>(res.slacks[idx_debug++]),std::cout,"slack system constraint");
-            sfc::print(hqp::toVector<3>(res.slacks[idx_debug++]),std::cout,"slack rpy task");
-            if (enable_ee_task) {
-              sfc::print(hqp::toVector<6>(res.slacks[idx_debug++]),std::cout,"slack ee");
-            }
-            if (enable_nominalconfiguration_task) {
-              sfc::print(hqp::toVector<6>(res.slacks[idx_debug++]),std::cout,"slack nominal config");
+            for (std::size_t lvl = 0; lvl < res.slacks.size(); ++lvl) {
+              const Eigen::VectorXd& w = res.slacks[lvl];
+              std::cout << "slack[" << lvl << "] " << solver.taskName(lvl)
+                        << " (size=" << w.size() << "): " << w.transpose() << "\n";
             }
           #endif
         #endif
@@ -871,7 +943,17 @@ void GironaController::controlThread() {
             // kinematics outputs
             logger_.logVector("nu_d", nu_d);
             logger_.logVector("dq_d", joint_velocity_desired);
-
+            #ifdef USE_HQP
+              logger_.logVector("collision_variables",collision_variables);
+              logger_.logVector("manipulability",sfc::Vector<1>{manipulability});
+              logger_.logVector("slack_system_constraint", slack_system_constraint);
+              logger_.logVector("slack_self_collision",    slack_self_collision);
+              logger_.logVector("slack_manipulability",    slack_manipulability);
+              logger_.logVector("slack_roll_pitch_yaw",    slack_roll_pitch_yaw);
+              logger_.logVector("slack_ee_pose",           slack_ee_pose);
+              logger_.logVector("slack_nominal_config",    slack_nominal_config);
+              logger_.logVector("slack_zero_velocity",     slack_zero_velocity);
+            #endif
             // dynamic controller
             logger_.logVector("nu_error", nu_error);
             logger_.logVector("thruster_force", thruster_force);
@@ -1166,6 +1248,14 @@ void GironaController::initializeController() {
       const sfc::Vector6 K_max{300,300,300,300,300,300};
       iros_force_controller_.setGains(mass,damping,stiffness);
       iros_force_controller_.setForceIntegralParams(K_s,K_min,K_max);
+      sfc::Vector6 w_hat_d{};
+      w_hat_d(0) = static_cast<sfc::Real>(0);
+      w_hat_d(1) = static_cast<sfc::Real>(25.0);
+      w_hat_d(2) = static_cast<sfc::Real>(0);
+      w_hat_d(3) = static_cast<sfc::Real>(0);
+      w_hat_d(4) = static_cast<sfc::Real>(0);
+      w_hat_d(5) = static_cast<sfc::Real>(0);
+      iros_force_controller_.setDesiredWrench(w_hat_d);
     #else
       const sfc::Vector6 mass{100,100,100,100,100,100};
       const sfc::Vector6 damping{200,200,200,200,200,200};
