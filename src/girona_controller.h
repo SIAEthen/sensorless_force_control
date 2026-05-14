@@ -253,6 +253,12 @@ class GironaController {
   ros::Publisher sensor_calibrated_tiplink_pub_;
   ros::Publisher k_stiff_pub_;
   ros::Publisher manipulability_pub_;
+#ifdef USE_HQP
+  ros::Publisher beta_ee_pub_;
+  ros::Publisher beta_rpy_pub_;
+  ros::Publisher beta_nominal_pub_;
+  ros::Publisher beta_man_pub_;
+#endif
 
   std::mutex kin_config_mutex_;
   std::mutex allocator_config_mutex_;

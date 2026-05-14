@@ -608,9 +608,9 @@ void GironaController::controlThread() {
           // Manipulability — value-based activation: beta rises as man drops toward man_min.
           // man > man_high → beta≈0 (task off); man ≈ man_min → beta≈1 (fully active).
           // During transition (0 < beta < 1), blend toward the next lower-priority task.
-          constexpr double man_min  = 0.002;
-          constexpr double man_beta1 = 0.003;
-          constexpr double man_beta0 = 0.006;
+          constexpr double man_min  = 0.005;
+          constexpr double man_beta1 = 0.005;
+          constexpr double man_beta0 = 0.008;
           sfc::Real manipulability = uvms_.manipulatorManipulability();
           if (enable_manipulability_task) {
             man_activator.stepValue(static_cast<double>(manipulability), man_beta0, man_beta1);
@@ -930,6 +930,12 @@ void GironaController::controlThread() {
           publishArray6(sensor_calibrated_pub_, sensor_feedback_calibrated);
           publishArray6(sensor_calibrated_tiplink_pub_, sensor_feedback_calibrated_ontiplink);
           { std_msgs::Float64 msg; msg.data = manipulability; manipulability_pub_.publish(msg); }
+          #ifdef USE_HQP
+            { std_msgs::Float64 msg; msg.data = ee_activator.beta();      beta_ee_pub_.publish(msg); }
+            { std_msgs::Float64 msg; msg.data = rpy_activator.beta();     beta_rpy_pub_.publish(msg); }
+            { std_msgs::Float64 msg; msg.data = nominal_activator.beta(); beta_nominal_pub_.publish(msg); }
+            { std_msgs::Float64 msg; msg.data = man_activator.beta();     beta_man_pub_.publish(msg); }
+          #endif
           #ifdef USE_VARIABLE_ADMITTANCE
             publishArray6(k_stiff_pub_, K_stiff);
           #endif
@@ -1095,6 +1101,12 @@ void GironaController::initializeController() {
         nh_.advertise<std_msgs::Float64MultiArray>("debug/k_stiff", 10);
     manipulability_pub_ =
         nh_.advertise<std_msgs::Float64>("debug/manipulability", 10);
+    #ifdef USE_HQP
+      beta_ee_pub_      = nh_.advertise<std_msgs::Float64>("debug/beta_ee", 10);
+      beta_rpy_pub_     = nh_.advertise<std_msgs::Float64>("debug/beta_rpy", 10);
+      beta_nominal_pub_ = nh_.advertise<std_msgs::Float64>("debug/beta_nominal", 10);
+      beta_man_pub_     = nh_.advertise<std_msgs::Float64>("debug/beta_man", 10);
+    #endif
   #endif
   // Placeholder for DH parameters and transforms; configure as needed by your arm.
   ROS_INFO("Initialize UVMS model from yaml file (obtained from URDF)");

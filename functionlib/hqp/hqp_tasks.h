@@ -43,7 +43,7 @@ class TaskActivator {
  public:
   enum class Stage { kOff, kActivating, kOn, kDeactivating };
 
-  explicit TaskActivator(double eps = 1e-5) : eps_(eps) {}
+  explicit TaskActivator(double eps = 1e-8) : eps_(eps) {}
 
   void activate()   { target_ = 1.0; }
   void deactivate() { target_ = 0.0; }
