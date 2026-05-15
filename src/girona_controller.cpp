@@ -344,6 +344,7 @@ void GironaController::controlThread() {
       hqp::TaskActivator sc_activator_j5;
       hqp::TaskActivator sc_activator_ee;
       sfc::Vector<12> zeta_star{};
+      double man_int = 0.0;
     #endif
     
     
@@ -640,12 +641,13 @@ void GironaController::controlThread() {
           // man > man_high → beta≈0 (task off); man ≈ man_min → beta≈1 (fully active).
           // During transition (0 < beta < 1), blend toward the next lower-priority task.
           constexpr double man_min  = 0.005;
-          constexpr double man_beta1 = 0.005;
-          constexpr double man_beta0 = 0.008;
+          constexpr double man_danger = 0.0051;
+          constexpr double man_safe = 0.008;
           sfc::Real manipulability = uvms_.manipulatorManipulability();
           if (enable_manipulability_task) {
-            man_activator.stepValue(static_cast<double>(manipulability), man_beta0, man_beta1);
+            man_activator.stepValue(static_cast<double>(manipulability), man_safe, man_danger);
             const double man_beta = man_activator.beta();
+            // if the task is activated and not in off state
             if (man_beta > 0.0) {
               sfc::Vector<12> man_zeta_star{};
               if (man_beta < 1.0) {

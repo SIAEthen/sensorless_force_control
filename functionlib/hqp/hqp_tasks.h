@@ -516,7 +516,7 @@ inline HQPCascadedTask makeManipulabilityTask(
     sfc::Matrix<1, 6 + ArmDof> J_task{};
     for (u_int i = 0; i < ArmDof; i++) J_task(0, 6 + i) = J_man(i);
 
-    sfc::Vector<1> h_min_task = sfc::Vector<1>{-1.0 * lambda_cbf * checkBarrier(man, man_min)};
+    sfc::Vector<1> h_min_task = sfc::Vector<1>{-1.0 * lambda_cbf * checkBarrier(man, man_min) };
     sfc::Vector<1> h_max_task = sfc::Vector<1>{100.0};
 
     const Eigen::MatrixXd J_eig = toEigen(J_task);
