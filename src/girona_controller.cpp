@@ -1069,19 +1069,30 @@ void GironaController::controlThread() {
             logger_.logVector("setpoints", setpoints);
             logger_.logVector("control_wrench", control_wrench);
 
+            // loop timing
+            logger_.logVector("dt", sfc::Vector<1>{static_cast<sfc::Real>(dt)});
+
             // FT sensor outputs
+            logger_.logVector("sensor_feedback_raw", sensor_feedback);
             logger_.logVector("sensor_feedback_filtered", sensor_feedback_filtered);
             logger_.logVector("sensor_feedback_calibrated", sensor_feedback_calibrated);
             logger_.logVector("sensor_feedback_calibrated_ontiplink", sensor_feedback_calibrated_ontiplink);
             logger_.logVector("h_e_ned_sensed", h_e_ned_sensed);
-                        
+            logger_.logVector("tau_e_sensed", tau_e_sensed);
 
             // he estimated by observer
+            logger_.logVector("gravity", gravity);
+            logger_.logVector("thrusts", thrusts);
             logger_.logVector("computed_control_wrench", computed_control_wrench);
             logger_.logVector("gravity_minus_tau_v", gravity_minus_tau_v);
             logger_.logVector("tau_e", tau_e);
             logger_.logVector("h_e_inertiaframe", h_e_inertiaframe);
+            logger_.logVector("h_e_bodyframe", h_e_bodyframe);
             logger_.logVector("h_e_tipframe", h_e_tipframe);
+
+            // admittance controller inputs/outputs
+            logger_.logVector("contact_force_torque", contact_force_torque);
+            logger_.logVector("a_ee_r", a_ee_r);
 
 
             // stiffness for variable stiffness
