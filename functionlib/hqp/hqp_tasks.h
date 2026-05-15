@@ -43,23 +43,21 @@ class TaskActivator {
  public:
   enum class Stage { kOff, kActivating, kOn, kDeactivating };
 
-  explicit TaskActivator(double eps = 1e-8) : eps_(eps) {}
+  TaskActivator() = default;
 
   void activate()   { target_ = 1.0; }
   void deactivate() { target_ = 0.0; }
 
   // Time-based sigmoid: duration = total transition time (s), steepness = S-curve sharpness.
-  // s_ is allowed to overshoot [0,1] by `margin` so the sigmoid fully saturates to 0/1.
-  // Required margin: s* = 0.5 + ln((1-eps)/eps) / steepness ≈ 0.5 + 11.5/steepness.
-  // wise suggestion, do not change steepness, beta might not be zero or near zero
+  // s_ in [0,1]; rescaled sigmoid guarantees beta=0 at s=0 and beta=1 at s=1 exactly.
   void stepTime(double dt, double duration = 1.0, double steepness = 10.0) {
-    const double rate   = (duration > 0.0) ? dt / duration : 1.0;
-    const double margin = std::log((1.0 - eps_) / eps_) / steepness - 0.5;
-    if (target_ > 0.5) s_ = std::min(1.0 + margin, s_ + rate);
-    else               s_ = std::max(0.0 - margin, s_ - rate);
-    beta_ = 1.0 / (1.0 + std::exp(-steepness * (s_ - 0.5)));
-    if (beta_ < eps_)       beta_ = 0.0;
-    if (beta_ > 1.0 - eps_) beta_ = 1.0;
+    const double rate = (duration > 0.0) ? dt / duration : 1.0;
+    if (target_ > 0.5) s_ = std::min(1.0, s_ + rate);
+    else               s_ = std::max(0.0, s_ - rate);
+    const double s0 = 1.0 / (1.0 + std::exp( steepness * 0.5));
+    const double s1 = 1.0 / (1.0 + std::exp(-steepness * 0.5));
+    const double st = 1.0 / (1.0 + std::exp(-steepness * (s_ - 0.5)));
+    beta_ = (st - s0) / (s1 - s0);
   }
 
   // Value-based: v in [a, b] → beta in [0, 1]; a→0, b→1 regardless of sign.
@@ -81,12 +79,12 @@ class TaskActivator {
   double target() const { return target_; }
 
   Stage stage() const {
-    if (target_ > 0.5) return (beta_ >= 1.0 - eps_) ? Stage::kOn          : Stage::kActivating;
-    else               return (beta_ <= eps_)        ? Stage::kOff         : Stage::kDeactivating;
+    if (target_ > 0.5) return (beta_ >= 1.0) ? Stage::kOn  : Stage::kActivating;
+    else               return (beta_ <= 0.0)  ? Stage::kOff : Stage::kDeactivating;
   }
 
-  bool isFullyActive()   const { return stage() == Stage::kOn; }
-  bool isFullyInactive() const { return stage() == Stage::kOff; }
+  bool isFullyActive()   const { return beta_ >= 1.0; }
+  bool isFullyInactive() const { return beta_ <= 0.0; }
   bool isTransitioning() const {
     const Stage s = stage();
     return s == Stage::kActivating || s == Stage::kDeactivating;
@@ -96,7 +94,6 @@ class TaskActivator {
   double beta_{0.0};
   double s_{0.0};
   double target_{0.0};
-  double eps_;
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -449,6 +446,8 @@ inline HQPCascadedTask makeJointLimitTask(
 }
 
 // ── Self-collision avoidance  (3-DOF, x-axis CBF) ─────────────────────────
+// beta is a per-link weight vector [beta_j3, beta_j5, beta_ee], computed externally
+// (e.g. via TaskActivator::stepValue). Default all-ones = fully active.
 template <std::size_t ArmDof,
           typename ManipulatorT = sfc::ManipulatorFromYAML<ArmDof>,
           typename VehicleT    = sfc::VehicleBase>
@@ -458,7 +457,7 @@ inline HQPCascadedTask makeSelfCollisionTask(
     const sfc::Vector<3>& Kw,
     const sfc::Real& x_min = 0.8,
     const sfc::Real& lambda_cbf = 1.0,
-    double beta = 1.0,
+    sfc::Vector<3> beta = sfc::Vector<3>{1.0, 1.0, 1.0},
     sfc::Vector<6 + ArmDof> zeta_star = sfc::Vector<6 + ArmDof>{0},
     std::string name = "self_collision")
 {
@@ -466,14 +465,14 @@ inline HQPCascadedTask makeSelfCollisionTask(
     sfc::Matrix<6, 6 + ArmDof> J_j5_B = uvms.jacobianBodyFrameN(5);
     sfc::Matrix<6, 6 + ArmDof> J_ee_B = uvms.jacobianBodyFrame();
 
-    sfc::Vector3 x_j3_B = uvms.forwardKinematicsBodyFrameN(3).translation();
-    sfc::Vector3 x_j5_B = uvms.forwardKinematicsBodyFrameN(5).translation();
-    sfc::Vector3 x_ee_B = uvms.forwardKinematicsBodyFrame().translation();
+    const double x_j3 = uvms.forwardKinematicsBodyFrameN(3).translation()(0);
+    const double x_j5 = uvms.forwardKinematicsBodyFrameN(5).translation()(0);
+    const double x_ee = uvms.forwardKinematicsBodyFrame().translation()(0);
 
     sfc::Vector<3> h_min_task = sfc::Vector<3>{
-        lambda_cbf * checkBarrier(x_j3_B(0), x_min),
-        lambda_cbf * checkBarrier(x_j5_B(0), x_min),
-        lambda_cbf * checkBarrier(x_ee_B(0), x_min)} * (-1.0);
+        lambda_cbf * checkBarrier(x_j3, x_min),
+        lambda_cbf * checkBarrier(x_j5, x_min),
+        lambda_cbf * checkBarrier(x_ee, x_min)} * (-1.0);
     sfc::Vector<3> h_max_task = sfc::Vector<3>{10.0, 10.0, 10.0};
 
     sfc::Matrix<3, 6 + ArmDof> J_collision{};
@@ -484,9 +483,17 @@ inline HQPCascadedTask makeSelfCollisionTask(
     }
 
     const Eigen::MatrixXd J_eig = toEigen<3, 6 + ArmDof>(J_collision);
-    const Eigen::VectorXd Jzs = J_eig * toEigen(zeta_star);
-    const Eigen::VectorXd lb = beta * toEigen(h_min_task) + (1.0 - beta) * Jzs;
-    const Eigen::VectorXd ub = beta * toEigen(h_max_task) + (1.0 - beta) * Jzs;
+    const Eigen::VectorXd Jzs  = J_eig * toEigen(zeta_star);
+    const Eigen::VectorXd lb_t = toEigen(h_min_task);
+    const Eigen::VectorXd ub_t = toEigen(h_max_task);
+
+    Eigen::VectorXd lb(3), ub(3);
+    for (int i = 0; i < 3; ++i) {
+        const double b = static_cast<double>(beta(i));
+        lb(i) = b * lb_t(i) + (1.0 - b) * Jzs(i);
+        ub(i) = b * ub_t(i) + (1.0 - b) * Jzs(i);
+    }
+
     return HQPCascadedTask(J_eig, lb, ub, toEigenMatrix(Kq), toEigenMatrix(Kw), std::move(name));
 }
 

@@ -340,6 +340,9 @@ void GironaController::controlThread() {
       hqp::TaskActivator rpy_activator;
       hqp::TaskActivator nominal_activator;
       hqp::TaskActivator man_activator;
+      hqp::TaskActivator sc_activator_j3;
+      hqp::TaskActivator sc_activator_j5;
+      hqp::TaskActivator sc_activator_ee;
       sfc::Vector<12> zeta_star{};
     #endif
     
@@ -599,10 +602,38 @@ void GironaController::controlThread() {
                                                           q_min, q_max,dq_min,dq_max, jl_Kq, jl_Kw));
           }
 
-          // self collision
+          // self collision — position-based activation per link (j3, j5, ee)
+          constexpr double sc_x_min  = 0.8;
+          constexpr double sc_x_safe = 0.9;
           sfc::Vector3 collision_variables = hqp::getSelfCollisionDiagnostics(uvms_);
           if (enable_self_collision_task) {
-            solver.addTask(hqp::makeSelfCollisionTask(uvms_, sc_Kq, sc_Kw));
+            sc_activator_j3.stepValue(static_cast<double>(collision_variables(0)), sc_x_safe, sc_x_min);
+            sc_activator_j5.stepValue(static_cast<double>(collision_variables(1)), sc_x_safe, sc_x_min);
+            sc_activator_ee.stepValue(static_cast<double>(collision_variables(2)), sc_x_safe, sc_x_min);
+          } else {
+            sc_activator_j3.stepValue(sc_x_safe, sc_x_safe, sc_x_min);
+            sc_activator_j5.stepValue(sc_x_safe, sc_x_safe, sc_x_min);
+            sc_activator_ee.stepValue(sc_x_safe, sc_x_safe, sc_x_min);
+          }
+          const sfc::Vector<3> sc_beta{
+              static_cast<sfc::Real>(sc_activator_j3.beta()),
+              static_cast<sfc::Real>(sc_activator_j5.beta()),
+              static_cast<sfc::Real>(sc_activator_ee.beta())};
+          if (!sc_activator_j3.isFullyInactive() || !sc_activator_j5.isFullyInactive() || !sc_activator_ee.isFullyInactive()) {
+            sfc::Vector<12> sc_zeta_star{};
+            if (sc_beta(0) < 1.0 || sc_beta(1) < 1.0 || sc_beta(2) < 1.0) {
+              hqp::HQPCascadedSolver onetime_solver(12);
+              if (!ee_activator.isFullyInactive()) {
+                onetime_solver.addTask(hqp::makeEeTaskWithVelocity(uvms_, v_ee_d, x_ee_r,
+                                                                    q_ee_d, gain_ee, ee_Kq, ee_Kw));
+              } else {
+                onetime_solver.addTask(hqp::makeNominalConfigTask(uvms_, nominal_config,
+                                                                   nc_gain, nc_Kq, nc_Kw));
+              }
+              sc_zeta_star = hqp::toVector<12>(onetime_solver.solve().qdot);
+            }
+            solver.addTask(hqp::makeSelfCollisionTask(uvms_, sc_Kq, sc_Kw,
+                                                       sc_x_min, 1.0, sc_beta, sc_zeta_star));
           }
 
           // Manipulability — value-based activation: beta rises as man drops toward man_min.
@@ -635,7 +666,7 @@ void GironaController::controlThread() {
                 
               }
               solver.addTask(hqp::makeManipulabilityTask(uvms_, man_Kq, man_Kw,
-                                                         man_min, 1000.0,
+                                                         man_min, 10.0,
                                                          man_beta, man_zeta_star));
             }
           } else {
@@ -661,6 +692,7 @@ void GironaController::controlThread() {
           // Task: EE configuration
           if (enable_ee_task) ee_activator.activate(); else ee_activator.deactivate();
           ee_activator.stepTime(dt, 5.0);
+          std::cout << "ee task beta is" << ee_activator.beta();
           if (!ee_activator.isFullyInactive()) {
             if (ee_activator.isFullyActive()) {
               solver.addTask(hqp::makeEeTaskWithVelocity(uvms_, v_ee_d, x_ee_r, q_ee_d,
@@ -935,6 +967,10 @@ void GironaController::controlThread() {
             { std_msgs::Float64 msg; msg.data = rpy_activator.beta();     beta_rpy_pub_.publish(msg); }
             { std_msgs::Float64 msg; msg.data = nominal_activator.beta(); beta_nominal_pub_.publish(msg); }
             { std_msgs::Float64 msg; msg.data = man_activator.beta();     beta_man_pub_.publish(msg); }
+            { std_msgs::Float64MultiArray msg; msg.data = {static_cast<float>(sc_activator_j3.beta()),
+                                                           static_cast<float>(sc_activator_j5.beta()),
+                                                           static_cast<float>(sc_activator_ee.beta())};
+              beta_sc_pub_.publish(msg); }
           #endif
           #ifdef USE_VARIABLE_ADMITTANCE
             publishArray6(k_stiff_pub_, K_stiff);
@@ -1004,6 +1040,7 @@ void GironaController::controlThread() {
               logger_.logVector("beta_rpy",     sfc::Vector<1>{static_cast<sfc::Real>(rpy_activator.beta())});
               logger_.logVector("beta_nominal", sfc::Vector<1>{static_cast<sfc::Real>(nominal_activator.beta())});
               logger_.logVector("beta_man",     sfc::Vector<1>{static_cast<sfc::Real>(man_activator.beta())});
+              logger_.logVector("beta_sc",      sc_beta);
             #endif
             // dynamic controller
             logger_.logVector("nu_error", nu_error);
@@ -1106,6 +1143,7 @@ void GironaController::initializeController() {
       beta_rpy_pub_     = nh_.advertise<std_msgs::Float64>("debug/beta_rpy", 10);
       beta_nominal_pub_ = nh_.advertise<std_msgs::Float64>("debug/beta_nominal", 10);
       beta_man_pub_     = nh_.advertise<std_msgs::Float64>("debug/beta_man", 10);
+      beta_sc_pub_      = nh_.advertise<std_msgs::Float64MultiArray>("debug/beta_sc", 10);
     #endif
   #endif
   // Placeholder for DH parameters and transforms; configure as needed by your arm.
