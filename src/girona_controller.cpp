@@ -430,7 +430,7 @@ void GironaController::controlThread() {
         
         
         
-        // kinematics
+        
         constexpr std::size_t kSysDof = 12;
         sfc::Matrix<kSysDof, kSysDof> N = sfc::identity<kSysDof>();
         sfc::Vector<kSysDof> zeta{};
@@ -479,7 +479,8 @@ void GironaController::controlThread() {
           enable_admittance = enable_admittance_;
         }
 
-
+        // kinematics
+        const auto t_ctrl_start = std::chrono::steady_clock::now();
         #ifdef USE_TPC
         // const sfc::Vector<6> q_min{-3*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
         // const sfc::Vector<6> q_max{ 3*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,      3.5*sfc::kPi4};
@@ -570,7 +571,7 @@ void GironaController::controlThread() {
         #endif //USE_TPC
 
         #ifdef USE_HQP
-          solver.clearTasks();
+          
           //task: Joint Limits
           const sfc::Vector<6> q_min{-1.5*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
           const sfc::Vector<6> q_max{ 1.5*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,      3.5*sfc::kPi4};
@@ -594,154 +595,174 @@ void GironaController::controlThread() {
           sfc::Vector<6>  ee_Kw = sfc::Vector<6>{1,1,1,1,1,1};
 
           const sfc::Vector<6> nc_gain{1.0,1.0,1.0,1.0,1.0,1.0};
-          sfc::Vector<12> nc_Kq = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,5,1};
-          sfc::Vector<6>  nc_Kw = sfc::Vector<6>{1,1,1,1,1,0.1};
+          sfc::Vector<12> nc_Kq = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
+          sfc::Vector<6>  nc_Kw = sfc::Vector<6>{0.10,0.10,0.10,0.10,0.10,0.10};
           
-          if (enable_jointlimits_task) {
-            solver.addTask(hqp::makeSystemConstraintsTask(uvms_, nu_min,nu_max,
-                                                          q_min, q_max,dq_min,dq_max, jl_Kq, jl_Kw));
-          }
-
-          // self collision — position-based activation per link (j3, j5, ee)
-          constexpr double sc_x_min  = 0.8;
-          constexpr double sc_x_safe = 0.9;
-          sfc::Vector3 collision_variables = hqp::getSelfCollisionDiagnostics(uvms_);
-          if (enable_self_collision_task) {
+          #ifdef USE_HQP_CONTINUOUS
+            solver.clearTasks();
+            if (enable_jointlimits_task) {
+              solver.addTask(hqp::makeSystemConstraintsTask(uvms_, nu_min,nu_max,
+                                                            q_min, q_max,dq_min,dq_max, jl_Kq, jl_Kw));
+            }
+            // self collision — always on, beta driven by link position
+            constexpr double sc_x_min  = 0.8;
+            constexpr double sc_x_safe = 0.9;
+            sfc::Vector3 collision_variables = hqp::getSelfCollisionDiagnostics(uvms_);
             sc_activator_j3.stepValue(static_cast<double>(collision_variables(0)), sc_x_safe, sc_x_min);
             sc_activator_j5.stepValue(static_cast<double>(collision_variables(1)), sc_x_safe, sc_x_min);
             sc_activator_ee.stepValue(static_cast<double>(collision_variables(2)), sc_x_safe, sc_x_min);
-          } else {
-            sc_activator_j3.stepValue(sc_x_safe, sc_x_safe, sc_x_min);
-            sc_activator_j5.stepValue(sc_x_safe, sc_x_safe, sc_x_min);
-            sc_activator_ee.stepValue(sc_x_safe, sc_x_safe, sc_x_min);
-          }
-          const sfc::Vector<3> sc_beta{
-              static_cast<sfc::Real>(sc_activator_j3.beta()),
-              static_cast<sfc::Real>(sc_activator_j5.beta()),
-              static_cast<sfc::Real>(sc_activator_ee.beta())};
-          if (!sc_activator_j3.isFullyInactive() || !sc_activator_j5.isFullyInactive() || !sc_activator_ee.isFullyInactive()) {
-            sfc::Vector<12> sc_zeta_star{};
-            if (sc_beta(0) < 1.0 || sc_beta(1) < 1.0 || sc_beta(2) < 1.0) {
+            const sfc::Vector<3> sc_beta{
+                static_cast<sfc::Real>(sc_activator_j3.beta()),
+                static_cast<sfc::Real>(sc_activator_j5.beta()),
+                static_cast<sfc::Real>(sc_activator_ee.beta())};
+            {
               hqp::HQPCascadedSolver onetime_solver(12);
-              if (!ee_activator.isFullyInactive()) {
+              if (rpy_activator.beta() > 0.0)
+                onetime_solver.addTask(hqp::makeRollPitchYawTask(uvms_, ref_rpy, gain_rpy, rpy_Kq, rpy_Kw));
+              else if (ee_activator.beta() > 0.0)
                 onetime_solver.addTask(hqp::makeEeTaskWithVelocity(uvms_, v_ee_d, x_ee_r,
-                                                                    q_ee_d, gain_ee, ee_Kq, ee_Kw));
-              } else {
+                                      q_ee_d, gain_ee, ee_Kq, ee_Kw));
+              else if (nominal_activator.beta() > 0.0)
                 onetime_solver.addTask(hqp::makeNominalConfigTask(uvms_, nominal_config,
-                                                                   nc_gain, nc_Kq, nc_Kw));
-              }
-              sc_zeta_star = hqp::toVector<12>(onetime_solver.solve().qdot);
+                                      nc_gain, nc_Kq, nc_Kw));
+              const sfc::Vector<12> sc_zeta_star = hqp::toVector<12>(onetime_solver.solve().qdot);
+              solver.addTask(hqp::makeSelfCollisionTask(uvms_, sc_Kq, sc_Kw,
+                                                        sc_x_min, 1.0, sc_beta, sc_zeta_star));
             }
-            solver.addTask(hqp::makeSelfCollisionTask(uvms_, sc_Kq, sc_Kw,
-                                                       sc_x_min, 1.0, sc_beta, sc_zeta_star));
-          }
 
-          // Manipulability — value-based activation: beta rises as man drops toward man_min.
-          // man > man_high → beta≈0 (task off); man ≈ man_min → beta≈1 (fully active).
-          // During transition (0 < beta < 1), blend toward the next lower-priority task.
-          constexpr double man_min  = 0.005;
-          constexpr double man_beta1 = 0.005;
-          constexpr double man_beta0 = 0.008;
-          sfc::Real manipulability = uvms_.manipulatorManipulability();
-          if (enable_manipulability_task) {
-            man_activator.stepValue(static_cast<double>(manipulability), man_beta0, man_beta1);
-            const double man_beta = man_activator.beta();
-            if (man_beta > 0.0) {
-              sfc::Vector<12> man_zeta_star{};
-              if (man_beta < 1.0) {
-                hqp::HQPCascadedSolver onetime_solver(12);
-                if (!ee_activator.isFullyInactive()) {
-                  onetime_solver.addTask(hqp::makeEeTaskWithVelocity(uvms_, v_ee_d, x_ee_r,
-                                         q_ee_d, gain_ee, ee_Kq, ee_Kw));
-                  man_zeta_star = hqp::toVector<12>(onetime_solver.solve().qdot);
-                }
-                else if(!nominal_activator.isFullyInactive()) 
-                {
-                  onetime_solver.addTask(hqp::makeNominalConfigTask(uvms_, nominal_config,
-                                         nc_gain, nc_Kq, nc_Kw));
-                  man_zeta_star = hqp::toVector<12>(onetime_solver.solve().qdot);
-                }else{
-                  man_zeta_star = Vector<12>{0};
-                }
-                
-              }
+            // manipulability — always on, beta driven by manipulability value
+            constexpr double man_min    = 0.005;
+            constexpr double man_danger = 0.005;
+            constexpr double man_safe   = 0.008;
+            sfc::Real manipulability = uvms_.manipulatorManipulability();
+            man_activator.stepValue(static_cast<double>(manipulability), man_safe, man_danger);
+            {
+              hqp::HQPCascadedSolver onetime_solver(12);
+              if (rpy_activator.beta() > 0.0)
+                onetime_solver.addTask(hqp::makeRollPitchYawTask(uvms_, ref_rpy, gain_rpy, rpy_Kq, rpy_Kw));
+              else if (ee_activator.beta() > 0.0)
+                onetime_solver.addTask(hqp::makeEeTaskWithVelocity(uvms_, v_ee_d, x_ee_r,
+                                      q_ee_d, gain_ee, ee_Kq, ee_Kw));
+              else if (nominal_activator.beta() > 0.0)
+                onetime_solver.addTask(hqp::makeNominalConfigTask(uvms_, nominal_config,
+                                      nc_gain, nc_Kq, nc_Kw));
+              const sfc::Vector<12> man_zeta_star = hqp::toVector<12>(onetime_solver.solve().qdot);
               solver.addTask(hqp::makeManipulabilityTask(uvms_, man_Kq, man_Kw,
-                                                         man_min, 10.0,
-                                                         man_beta, man_zeta_star));
+                                                        man_min, 10.0,
+                                                        man_activator.beta(), man_zeta_star));
             }
-          } else {
-            man_activator.reset();
-          }
 
-          // Task: Vehicle RPY
-          if (enable_sigma_rpy_task) rpy_activator.activate(); else rpy_activator.deactivate();
-          rpy_activator.stepTime(dt, 5.0);
-          if (!rpy_activator.isFullyInactive()) {
-            if (rpy_activator.isFullyActive()) {
-              solver.addTask(hqp::makeRollPitchYawTask(uvms_, ref_rpy, gain_rpy, rpy_Kq, rpy_Kw));
-            } else {
+            // Task: Vehicle RPY
+            if (enable_sigma_rpy_task) rpy_activator.activate(); else rpy_activator.deactivate();
+            rpy_activator.stepTime(dt, 5.0);
+            {
               hqp::HQPCascadedSolver onetime_solver(12);
               onetime_solver.addTask(hqp::makeEeTaskWithVelocity(uvms_, v_ee_d, x_ee_r, q_ee_d,
-                                     gain_ee, ee_Kq, ee_Kw));
+                                    gain_ee, ee_Kq, ee_Kw));
               zeta_star = hqp::toVector<12>(onetime_solver.solve().qdot);
               solver.addTask(hqp::makeRollPitchYawTask(uvms_, ref_rpy, gain_rpy, rpy_Kq, rpy_Kw,
                                                         rpy_activator.beta(), zeta_star));
             }
-          }
 
-          // Task: EE configuration
-          if (enable_ee_task) ee_activator.activate(); else ee_activator.deactivate();
-          ee_activator.stepTime(dt, 5.0);
-          std::cout << "ee task beta is" << ee_activator.beta();
-          if (!ee_activator.isFullyInactive()) {
-            if (ee_activator.isFullyActive()) {
-              solver.addTask(hqp::makeEeTaskWithVelocity(uvms_, v_ee_d, x_ee_r, q_ee_d,
-                                                         gain_ee, ee_Kq, ee_Kw));
-            } else {
+            // Task: EE configuration
+            if (enable_ee_task) ee_activator.activate(); else ee_activator.deactivate();
+            ee_activator.stepTime(dt, 10.0);
+            {
               hqp::HQPCascadedSolver onetime_solver(12);
-              onetime_solver.addTask(hqp::makeNominalConfigTask(uvms_, nominal_config,
-                                     nc_gain, nc_Kq, nc_Kw));
+              onetime_solver.addTask(hqp::makeNominalConfigTask(uvms_, nominal_config, nc_gain, nc_Kq, nc_Kw));
               zeta_star = hqp::toVector<12>(onetime_solver.solve().qdot);
               solver.addTask(hqp::makeEeTaskWithVelocity(uvms_, v_ee_d, x_ee_r, q_ee_d,
-                                                         gain_ee, ee_Kq, ee_Kw,
-                                                         0.01, 0.001,
-                                                         ee_activator.beta(), zeta_star));
+                                                        gain_ee, ee_Kq, ee_Kw,
+                                                        0.01, 0.001,
+                                                        ee_activator.beta(), zeta_star));
             }
-          }
+            // Task: nominal joint configuration
+            if (enable_nominalconfiguration_task) nominal_activator.activate(); else nominal_activator.deactivate();
+            nominal_activator.stepTime(dt, 5.0);
+            if (!nominal_activator.isFullyInactive()) {
+              const sfc::Vector<6> nc_Kw_scaled = nc_Kw * static_cast<sfc::Real>(nominal_activator.beta());
+              solver.addTask(hqp::makeNominalConfigTask(uvms_, nominal_config, nc_gain,nc_Kq, nc_Kw_scaled));
+            }
+            // Task: Zero velocity task, velocity penalty
+            if (enable_zero_velocity_task) {
+              solver.addTask(hqp::makeZeroVelocityTask(uvms_,1,10));
+            }
 
-          // Task: nominal joint configuration
-          if (enable_nominalconfiguration_task) nominal_activator.activate(); else nominal_activator.deactivate();
-          nominal_activator.stepTime(dt, 5.0);
-          if (!nominal_activator.isFullyInactive()) {
-            const sfc::Vector<6> nc_Kw_scaled = nc_Kw * static_cast<sfc::Real>(nominal_activator.beta());
-            solver.addTask(hqp::makeNominalConfigTask(uvms_, nominal_config, nc_gain,
-                           nc_Kq, nc_Kw_scaled));
-          }
+            // Fixed-size slack variables, zero by default if task not active.
+            sfc::Vector<12> slack_system_constraint{};
+            sfc::Vector<3>  slack_self_collision{};
+            sfc::Vector<1>  slack_manipulability{};
+            sfc::Vector<3>  slack_roll_pitch_yaw{};
+            sfc::Vector<6>  slack_ee_pose{};
+            sfc::Vector<6>  slack_nominal_config{};
+            sfc::Vector<12> slack_zero_velocity{};
 
-          // Task: Zero velocity task, velocity penalty
-          if (enable_zero_velocity_task) {
-            solver.addTask(hqp::makeZeroVelocityTask(uvms_,1,10));
-          }
+            // auto res = solver.solveRelaxed();
+            auto res = solver.solve();
+            Eigen::VectorXd zeta_eigen = res.qdot;
+            Vector<12> zeta_sat = hqp::toVector<12>(zeta_eigen);
+          #endif
 
-          // Fixed-size slack variables, zero by default if task not active.
-          sfc::Vector<12> slack_system_constraint{};
-          sfc::Vector<3>  slack_self_collision{};
-          sfc::Vector<1>  slack_manipulability{};
-          sfc::Vector<3>  slack_roll_pitch_yaw{};
-          sfc::Vector<6>  slack_ee_pose{};
-          sfc::Vector<6>  slack_nominal_config{};
-          sfc::Vector<12> slack_zero_velocity{};
+          
+          #ifdef USE_HQP_JOJO
+            solver.clearTasks();
+            if (enable_jointlimits_task) {
+              solver.addTask(hqp::makeSystemConstraintsTask(uvms_, nu_min,nu_max,
+                                                            q_min, q_max,dq_min,dq_max, jl_Kq, jl_Kw));
+            }
+            // self collision — position-based activation per link (j3, j5, ee)
+            constexpr double sc_x_min  = 0.8;
+            constexpr double sc_x_safe = 0.9;
+            sfc::Vector3 collision_variables = hqp::getSelfCollisionDiagnostics(uvms_);
+            if (enable_self_collision_task) {
+              solver.addTask(hqp::makeSelfCollisionTask(uvms_, sc_Kq, sc_Kw, sc_x_min, 1.0));
+            }
 
-          // auto res = solver.solveRelaxed();
-          auto res = solver.solve();
-          Eigen::VectorXd zeta_eigen = res.qdot;
-          Vector<12> zeta_sat = hqp::toVector<12>(zeta_eigen);
-          // if(fabs(beta_ee-1)<0.00001){
-          //   zeta_star = zeta_sat;
-          // }
-          // if(fabs(beta_ee)<0.000001){
-          //   zeta_star = zeta_sat;
-          // }
+            // Manipulability — value-based activation: beta rises as man drops toward man_min.
+            // man > man_high → beta≈0 (task off); man ≈ man_min → beta≈1 (fully active).
+            // During transition (0 < beta < 1), blend toward the next lower-priority task.
+            constexpr double man_min  = 0.005;
+            sfc::Real manipulability = uvms_.manipulatorManipulability();
+            if (enable_manipulability_task) {
+                solver.addTask(hqp::makeManipulabilityTask(uvms_, man_Kq, man_Kw, man_min, 10.0));
+              }
+
+            // Task: Vehicle RPY
+            if (enable_sigma_rpy_task){
+              solver.addTask(hqp::makeRollPitchYawTask(uvms_, ref_rpy, gain_rpy, rpy_Kq, rpy_Kw));
+              }
+
+            // Task: EE configuration
+            if (enable_ee_task){solver.addTask(hqp::makeEeTaskWithVelocity(uvms_, v_ee_d, x_ee_r, q_ee_d,
+                                                          gain_ee, ee_Kq, ee_Kw,
+                                                          0.01, 0.001));}
+            // Task: nominal joint configuration
+            if (enable_nominalconfiguration_task){
+              solver.addTask(hqp::makeNominalConfigTask(uvms_, nominal_config, nc_gain,nc_Kq,nc_Kw));
+            }
+
+            // Task: Zero velocity task, velocity penalty
+            if (enable_zero_velocity_task) {
+              solver.addTask(hqp::makeZeroVelocityTask(uvms_,1,10));
+            }
+
+            // Fixed-size slack variables, zero by default if task not active.
+            sfc::Vector<12> slack_system_constraint{};
+            sfc::Vector<3>  slack_self_collision{};
+            sfc::Vector<1>  slack_manipulability{};
+            sfc::Vector<3>  slack_roll_pitch_yaw{};
+            sfc::Vector<6>  slack_ee_pose{};
+            sfc::Vector<6>  slack_nominal_config{};
+            sfc::Vector<12> slack_zero_velocity{};
+
+            // auto res = solver.solveRelaxed();
+            auto res = solver.solve();
+            Eigen::VectorXd zeta_eigen = res.qdot;
+            Vector<12> zeta_sat = hqp::toVector<12>(zeta_eigen);
+          #endif
+          // record the time consumption of one task
+          const double kin_ctrl_time_us = std::chrono::duration<double, std::micro>(
+              std::chrono::steady_clock::now() - t_ctrl_start).count();
 
           for (std::size_t lvl = 0; lvl < res.slacks.size(); ++lvl) {
             const std::string& tn = solver.taskName(lvl);
@@ -765,9 +786,6 @@ void GironaController::controlThread() {
             }
           #endif
         #endif
-
-        
-
 
         sfc::Vector6 nu_d{zeta_sat(0),zeta_sat(1),zeta_sat(2),zeta_sat(3),zeta_sat(4),zeta_sat(5)};
         sfc::Vector6 nu_error = nu_d - uvms_.vehicleVelocity();
@@ -971,6 +989,7 @@ void GironaController::controlThread() {
                                                            static_cast<float>(sc_activator_j5.beta()),
                                                            static_cast<float>(sc_activator_ee.beta())};
               beta_sc_pub_.publish(msg); }
+            { std_msgs::Float64 msg; msg.data = kin_ctrl_time_us; kin_ctrl_timing_pub_.publish(msg); }
           #endif
           #ifdef USE_VARIABLE_ADMITTANCE
             publishArray6(k_stiff_pub_, K_stiff);
@@ -1040,8 +1059,10 @@ void GironaController::controlThread() {
               logger_.logVector("beta_rpy",     sfc::Vector<1>{static_cast<sfc::Real>(rpy_activator.beta())});
               logger_.logVector("beta_nominal", sfc::Vector<1>{static_cast<sfc::Real>(nominal_activator.beta())});
               logger_.logVector("beta_man",     sfc::Vector<1>{static_cast<sfc::Real>(man_activator.beta())});
-              logger_.logVector("beta_sc",      sc_beta);
+              logger_.logVector("beta_sc",      sfc::Vector<3>{static_cast<sfc::Real>(sc_activator_j3.beta(),
+                                                  sc_activator_j5.beta(),sc_activator_ee.beta())});
             #endif
+            logger_.logVector("kin_ctrl_timing_us", sfc::Vector<1>{static_cast<sfc::Real>(kin_ctrl_time_us)});
             // dynamic controller
             logger_.logVector("nu_error", nu_error);
             logger_.logVector("thruster_force", thruster_force);
@@ -1144,6 +1165,7 @@ void GironaController::initializeController() {
       beta_nominal_pub_ = nh_.advertise<std_msgs::Float64>("debug/beta_nominal", 10);
       beta_man_pub_     = nh_.advertise<std_msgs::Float64>("debug/beta_man", 10);
       beta_sc_pub_      = nh_.advertise<std_msgs::Float64MultiArray>("debug/beta_sc", 10);
+      kin_ctrl_timing_pub_   = nh_.advertise<std_msgs::Float64>("debug/kin_ctrl_timing_us", 10);
     #endif
   #endif
   // Placeholder for DH parameters and transforms; configure as needed by your arm.

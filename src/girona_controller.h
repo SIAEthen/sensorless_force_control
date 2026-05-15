@@ -259,6 +259,7 @@ class GironaController {
   ros::Publisher beta_nominal_pub_;
   ros::Publisher beta_man_pub_;
   ros::Publisher beta_sc_pub_;
+  ros::Publisher kin_ctrl_timing_pub_;
 #endif
 
   std::mutex kin_config_mutex_;
