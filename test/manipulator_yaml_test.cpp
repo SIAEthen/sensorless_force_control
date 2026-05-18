@@ -153,5 +153,134 @@ int main() {
   }
 
 
+  // ── Beta-transition test: EE task (beta 1→0) + nominal config task ─────────
+  // We simulate N steps. EE task starts fully active, then we call deactivate()
+  // so beta ramps from 1 down to 0 over T_transition seconds.
+  //
+  // zeta_star for the EE task is always the pure nominal-config solution,
+  // so at beta=0 the EE task collapses to "track zeta_star" and the two
+  // tasks agree → no jump expected.
+  //
+  // Compare with the "naive" column where we simply drop the EE task at beta=0
+  // (which CAN jump because the solver suddenly sees a different problem).
+
+  std::cout << "\n\n=== Beta-transition test ===\n";
+  std::cout << std::fixed << std::setprecision(4);
+
+  // Task parameters (shared by both columns)
+  const sfc::Vector3  pos_ref_t = uvms.endEffectorPositionNed() + sfc::Vector3{0.5, 0.3, -0.2};
+  const sfc::Quaternion q_ref_t = uvms.endEffectorQuaternionNed();
+  const sfc::Vector6  gain_ee_t{1,1,1,1,1,1};
+  const sfc::Vector<12> Kq_ee_t{1,1,1,1,1,1, 1,1,1,1,1,1};
+  const sfc::Vector<6>  Kw_ee_t{1,1,1,1,1,1};
+
+  const sfc::Vector6  nominal_config_t{0,0,0,0,0,0.5};
+  const sfc::Vector6  nc_gain_t{1,1,1,1,1,1};
+  const sfc::Vector<12> Kq_nc_t{1,1,1,1,1,1, 1,1,1,1,1,1};
+  const sfc::Vector<6>  Kw_nc_t{0.1,0.1,0.1,0.1,0.1,0.1};
+
+  const double dt_t          = 0.1;    // simulated step [s]
+  const double T_transition  = 2.0;   // time to ramp beta from 1→0 [s]
+  const int    N_steps       = 21;    // total steps (covers transition + a bit after)
+
+  hqp::TaskActivator ee_act_smooth;   // smooth blend (with zeta_star)
+  hqp::TaskActivator ee_act_naive;    // naive: just remove task at beta=0
+  ee_act_smooth.reset(1.0);
+  ee_act_naive.reset(1.0);
+  ee_act_smooth.deactivate();
+  ee_act_naive.deactivate();
+
+  ee_act_smooth.reset(0.0);
+  ee_act_naive.reset(0.0);
+  ee_act_smooth.activate();
+  ee_act_naive.activate();
+
+
+  for (int step = 0; step < N_steps; ++step) {
+    ee_act_smooth.stepTime(dt_t, T_transition);
+    ee_act_naive.stepTime(dt_t, T_transition);
+    const double beta = ee_act_smooth.beta();
+
+    // ── smooth column ────────────────────────────────────────────────────────
+    // zeta_star = pure nominal-config solution (what we want to fall back to)
+    sfc::Vector<12> zeta_star_t{};
+    hqp::HQPCascadedResult res_zeta_star;
+    {
+      hqp::HQPCascadedSolver nc_solver(12);
+      nc_solver.addTask(hqp::makeNominalConfigTask(uvms, nominal_config_t, nc_gain_t, Kq_nc_t, Kw_nc_t));
+      res_zeta_star = nc_solver.solve();
+      zeta_star_t = hqp::toVector<12>(res_zeta_star.qdot);
+    }
+
+    hqp::HQPCascadedSolver s_smooth(12);
+    s_smooth.addTask(hqp::makeEeTask(uvms, pos_ref_t, q_ref_t, gain_ee_t,
+                                     Kq_ee_t, Kw_ee_t, 0.01, 0.001, beta, zeta_star_t));
+    s_smooth.addTask(hqp::makeNominalConfigTask(uvms, nominal_config_t, nc_gain_t, Kq_nc_t, Kw_nc_t));
+    const auto res_smooth = s_smooth.solve();
+    const sfc::Vector<12> zeta_smooth = hqp::toVector<12>(res_smooth.qdot);
+
+    // ── naive column ─────────────────────────────────────────────────────────
+    // When beta hits 0, simply don't add the EE task at all
+    hqp::HQPCascadedSolver s_naive(12);
+    if (!ee_act_naive.isFullyInactive() && !ee_act_naive.isFullyActive()) {
+      s_naive.addTask(hqp::makeEeTask(uvms, pos_ref_t, q_ref_t, gain_ee_t,
+                                      Kq_ee_t, Kw_ee_t, 0.01, 0.001, ee_act_naive.beta(),zeta_star_t));
+    }
+    if(ee_act_naive.isFullyActive()){
+      s_naive.addTask(hqp::makeEeTask(uvms, pos_ref_t, q_ref_t, gain_ee_t,
+                                      Kq_ee_t, Kw_ee_t, 0.01, 0.001));
+    }
+    // if(step ==19){
+    //   s_naive.addTask(hqp::makeEeTask(uvms, pos_ref_t, q_ref_t, gain_ee_t,
+    //                                   Kq_ee_t, Kw_ee_t, 0.01, 0.001, ee_act_naive.beta(),zeta_star_t));
+    // }
+
+    s_naive.addTask(hqp::makeNominalConfigTask(uvms, nominal_config_t, nc_gain_t, Kq_nc_t, Kw_nc_t));
+    const auto res_naive = s_naive.solve();
+    const sfc::Vector<12> zeta_naive = hqp::toVector<12>(res_naive.qdot);
+
+    // ── print ────────────────────────────────────────────────────────────────
+    std::cout << "step=" << std::setw(3) << step
+              << "  beta=" << std::setw(6) << beta << "\n";
+
+    // zeta_star
+    std::cout << "  zeta_star dq: ";
+    for (int i = 6; i < 12; ++i) std::cout << std::setw(8) << zeta_star_t(i);
+    std::cout << "\n  slacks zeta_star:\n";
+    for (std::size_t lvl = 0; lvl < res_zeta_star.slacks.size(); ++lvl) {
+      const Eigen::VectorXd& w = res_zeta_star.slacks[lvl];
+      std::cout << "    [lvl" << lvl << "] (|w|=" << std::setprecision(6) << w.norm() << ")  "
+                << w.transpose() << "\n";
+    }
+
+    // joint velocities side-by-side
+    std::cout << "  dq  smooth: ";
+    for (int i = 6; i < 12; ++i) std::cout << std::setw(8) << zeta_smooth(i);
+    std::cout << "\n  dq  naive:  ";
+    for (int i = 6; i < 12; ++i) std::cout << std::setw(8) << zeta_naive(i);
+    std::cout << "\n";
+
+    // slacks for smooth solver
+    std::cout << "  slacks smooth:\n";
+    for (std::size_t lvl = 0; lvl < res_smooth.slacks.size(); ++lvl) {
+      const Eigen::VectorXd& w = res_smooth.slacks[lvl];
+      std::cout << "    [" << s_smooth.taskName(lvl) << "] (|w|="
+                << std::setprecision(6) << w.norm() << ")  "
+                << w.transpose() << "\n";
+    }
+
+    // slacks for naive solver
+    std::cout << "  slacks naive:\n";
+    for (std::size_t lvl = 0; lvl < res_naive.slacks.size(); ++lvl) {
+      const Eigen::VectorXd& w = res_naive.slacks[lvl];
+      std::cout << "    [" << s_naive.taskName(lvl) << "] (|w|="
+                << std::setprecision(6) << w.norm() << ")  "
+                << w.transpose() << "\n";
+    }
+    std::cout << "\n";
+  }
+
+  
+
   return 0;
 }
