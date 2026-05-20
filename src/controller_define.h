@@ -36,7 +36,18 @@
   #endif
 #endif
 
+
 // #define USE_TPC
 #define USE_HQP
-// #define USE_HQP_JOJO
-#define USE_HQP_CONTINUOUS
+
+//HQP has several methods, for example, 
+// from joejoe, this is the best hqp, it didnt consider the activate and deactivate tasks
+// from korean guys (continuous), it consider the activate the tasks, but it has discontinuty when beta turns to 0 and 1
+// because of the slack variables
+// from korean guys but never deactivate the tasks. it will always compute the next nominal task, high compute cost
+
+#ifdef USE_HQP
+  // #define USE_HQP_JOJO
+  #define USE_HQP_CONTINUOUS
+  // #define USE_HQP_Korean
+#endif

@@ -75,16 +75,44 @@ class TaskActivator {
 
   void reset(double beta = 0.0) { beta_ = beta; s_ = beta; target_ = 0.0; }
 
-  double beta()   const { return beta_; }
+  // ── Scale modifier ────────────────────────────────────────────────────────
+  // scale_ ∈ [0,∞), default 1.0 → betaScaled() == beta().
+  // scale < 1 compresses beta toward 0.5 (softens the blend during transitions).
+  // Use setScale() each step, or compute it via scaleFromSlack().
+  void setScale(double s) { scale_ = s; }
+  
+  void setScaleFromSlack(double w, double threshold=0.05, double a = 0.05) { 
+    const double excess = w > threshold ? w - threshold : 0.0;
+    scale_ = 1 - a + a * std::exp(-excess / threshold);
+    }
+
+  // betaScaled = clamp(0.5 + scale * (beta - 0.5), 0, 1)
+  double betaScaled() const {
+    const double v = 0.5 + scale_ * (beta_ - 0.5);
+    return v < 0.0 ? 0.0 : (v > 1.0 ? 1.0 : v);
+  }
+
+  // Helper: scale from slack magnitude.
+  //   w         — slack norm (e.g. |w_ee| from the solver)
+  //   eta       — slack threshold below which scale = 1.0 (no compression)
+  //   threshold — exponential decay rate; larger → gentler drop
+  // Returns value in [0.8, 1.0]: 1.0 when w <= eta, approaches 0.8 as w grows.
+  static double scaleFromSlack(double w, double threshold=0.05, double a = 0.05) {
+    const double excess = w > threshold ? w - threshold : 0.0;
+    return 1 - a + a * std::exp(-excess / threshold);
+  }
+
+  double beta()   const { return betaScaled() ; }
+  double scale()  const { return scale_; }
   double target() const { return target_; }
 
   Stage stage() const {
-    if (target_ > 0.5) return (beta_ >= 1.0) ? Stage::kOn  : Stage::kActivating;
-    else               return (beta_ <= 0.0)  ? Stage::kOff : Stage::kDeactivating;
+    if (target_ > 0.5) return (betaScaled() >= 1.0) ? Stage::kOn  : Stage::kActivating;
+    else               return (betaScaled() <= 0.0)  ? Stage::kOff : Stage::kDeactivating;
   }
 
-  bool isFullyActive()   const { return beta_ >= 1.0; }
-  bool isFullyInactive() const { return beta_ <= 0.0; }
+  bool isFullyActive()   const { return betaScaled() >= 1.0; }
+  bool isFullyInactive() const { return betaScaled() <= 0.0; }
   bool isTransitioning() const {
     const Stage s = stage();
     return s == Stage::kActivating || s == Stage::kDeactivating;
@@ -94,6 +122,7 @@ class TaskActivator {
   double beta_{0.0};
   double s_{0.0};
   double target_{0.0};
+  double scale_{1.0};
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
