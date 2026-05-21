@@ -216,6 +216,13 @@ void GironaController::admittanceReconfigCb(sensorless_force_control::Admittance
     nominal_config_(4) = static_cast<sfc::Real>(config.nominal_config_5);
     nominal_config_(5) = static_cast<sfc::Real>(config.nominal_config_6);
 
+    kw_jl_  = static_cast<sfc::Real>(config.kw_jl);
+    kw_sc_  = static_cast<sfc::Real>(config.kw_sc);
+    kw_man_ = static_cast<sfc::Real>(config.kw_man);
+    kw_rpy_ = static_cast<sfc::Real>(config.kw_rpy);
+    kw_ee_  = static_cast<sfc::Real>(config.kw_ee);
+    kw_nc_  = static_cast<sfc::Real>(config.kw_nc);
+
     allocator_damping_ = static_cast<sfc::Real>(config.allocator_damping);
     #ifdef THRUST_DLS_OFFSET
       thrust_offset_ = static_cast<sfc::Real>(config.allocator_offset);
@@ -579,23 +586,23 @@ void GironaController::controlThread() {
           const sfc::Vector<6> nu_min{-0.10,-0.10,-0.10,-0.10,-0.10,-0.10};
           const sfc::Vector<6> nu_max{0.10,0.10,0.10,0.10,0.10,0.10};
           sfc::Vector<12> jl_Kq = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
-          sfc::Vector<12> jl_Kw = sfc::Vector<12>{1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000,1000};
+          sfc::Vector<12> jl_Kw = sfc::Vector<12>{1,1,1,1,1,1,1,1,1,1,1,1} * kw_jl_;
 
           sfc::Vector<12> sc_Kq = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
-          sfc::Vector<3>  sc_Kw = sfc::Vector<3>{1000,1000,1000};
+          sfc::Vector<3>  sc_Kw = sfc::Vector<3>{1,1,1} * kw_sc_;
 
           sfc::Vector<12> man_Kq = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
-          sfc::Vector<1>  man_Kw = sfc::Vector<1>{10};
+          sfc::Vector<1>  man_Kw = sfc::Vector<1>{1} * kw_man_;
 
           sfc::Vector<12> rpy_Kq = sfc::Vector<12>{1,1,1,5,5,5, 1,1,1,1,1,1};
-          sfc::Vector<3>  rpy_Kw = sfc::Vector<3>{1,1,1};
+          sfc::Vector<3>  rpy_Kw = sfc::Vector<3>{1,1,1} * kw_rpy_;
 
           sfc::Vector<12> ee_Kq = sfc::Vector<12>{5,5,5,100,10,10, 3,3,3,2,2,1};
-          sfc::Vector<6>  ee_Kw = sfc::Vector<6>{1,1,1,1,1,1};
+          sfc::Vector<6>  ee_Kw = sfc::Vector<6>{1,1,1,1,1,1} * kw_ee_;
 
           const sfc::Vector<6> nc_gain{1.0,1.0,1.0,1.0,1.0,1.0};
           sfc::Vector<12> nc_Kq = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
-          sfc::Vector<6>  nc_Kw = sfc::Vector<6>{0.10,0.10,0.10,0.10,0.10,0.10};
+          sfc::Vector<6>  nc_Kw = sfc::Vector<6>{1,1,1,1,1,1} * kw_nc_;
           
           // ── shared HQP state (accessible to all sub-defines) ─────────────────
           constexpr double sc_x_min  = 0.8;

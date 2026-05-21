@@ -48,6 +48,6 @@
 
 #ifdef USE_HQP
   // #define USE_HQP_JOJO
-  #define USE_HQP_CONTINUOUS
-  // #define USE_HQP_Korean
+  // #define USE_HQP_CONTINUOUS
+  #define USE_HQP_Korean
 #endif

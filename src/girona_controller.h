@@ -273,6 +273,12 @@ class GironaController {
   sfc::Vector6 admittance_deadzone_{0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
   sfc::Vector6 nominal_config_{0.0, 0.0, 0.0, 0.0, 0.0, 1.0};
   sfc::Real allocator_damping_{static_cast<sfc::Real>(1e-4)};
+  sfc::Real kw_jl_{1000.0};
+  sfc::Real kw_sc_{1000.0};
+  sfc::Real kw_man_{10.0};
+  sfc::Real kw_rpy_{1.0};
+  sfc::Real kw_ee_{1.0};
+  sfc::Real kw_nc_{1.0};
   
   #ifdef QP_ALLOCATOR_055
     sfc::Vector6 allocator_desired_normalized_input_{0.55, 0.55, 0.55, 0.55, 0.0, 0.0};
