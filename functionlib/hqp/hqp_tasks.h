@@ -85,6 +85,23 @@ class TaskActivator {
     const double excess = w > threshold ? w - threshold : 0.0;
     scale_ = 1 - a + a * std::exp(-excess / threshold);
     }
+  void setScaleFromSlack2(double w, double threshold=0.05, double a = 0.05) { 
+    const double x = w > threshold ? w/threshold : 1.0;
+    const double k = 0.01;
+    scale_ = std::exp(k*(1-x) / threshold);
+    }
+    // [a b] -> [0,1]
+    void setScaleFromSlack3(double v, double a, double b, double steepness = 6.0) { 
+    const double denom = b - a;
+    double t = (std::fabs(denom) > 1e-12) ? (v - a) / denom : (v >= b ? 1.0 : 0.0);
+    t = std::max(0.0, std::min(1.0, t));
+    const double s0 = 1.0 / (1.0 + std::exp( steepness * 0.5));  // sigma(t=0)
+    const double s1 = 1.0 / (1.0 + std::exp(-steepness * 0.5));  // sigma(t=1)
+    const double st = 1.0 / (1.0 + std::exp(-steepness * (t - 0.5)));
+    double scale_temp = (st - s0) / (s1 - s0);
+    
+    scale_ = scale_temp * 0.1 + 0.9;
+    }
 
   // betaScaled = clamp(0.5 + scale * (beta - 0.5), 0, 1)
   double betaScaled() const {

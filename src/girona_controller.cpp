@@ -600,7 +600,7 @@ void GironaController::controlThread() {
           sfc::Vector<12> ee_Kq = sfc::Vector<12>{5,5,5,100,10,10, 3,3,3,2,2,1};
           sfc::Vector<6>  ee_Kw = sfc::Vector<6>{1,1,1,1,1,1} * kw_ee_;
 
-          const sfc::Vector<6> nc_gain{1.0,1.0,1.0,1.0,1.0,1.0};
+          const sfc::Vector<6> nc_gain{5.0,5.0,5.0,5.0,5.0,5.0};
           sfc::Vector<12> nc_Kq = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
           sfc::Vector<6>  nc_Kw = sfc::Vector<6>{1,1,1,1,1,1} * kw_nc_;
           
@@ -965,7 +965,9 @@ void GironaController::controlThread() {
 
           #ifdef USE_HQP_CONTINUOUS
           if(ee_activator.isTransitioning()){
-            ee_activator.setScaleFromSlack(sfc::vectorNorm(slack_ee_pose),0.01);
+            // ee_activator.setScaleFromSlack(sfc::vectorNorm(slack_ee_pose),0.01);
+            // ee_activator.setScaleFromSlack2(sfc::vectorNorm(slack_ee_pose),0.001);
+            ee_activator.setScaleFromSlack3(sfc::vectorNorm(slack_ee_pose),1.0,0.01);
             }
           #endif
 
