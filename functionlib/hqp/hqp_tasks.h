@@ -598,6 +598,109 @@ inline HQPCascadedTask makeZeroVelocityTask(
     return HQPCascadedTask(J_eig, lb, ub, Kq, Kw, std::move(name));
 }
 
+// ── Vehicle camera vision constraint  (3-DOF) ────────────────────────────────
+//
+// Keeps the end-effector inside the camera's field of view by enforcing three
+// velocity-level inequalities (one per camera axis):
+//
+//   Row 0 — horizontal:  x_E^C[0] ∈ [ -d·tan(α_h/2),  +d·tan(α_h/2) ]
+//   Row 1 — vertical:    x_E^C[1] ∈ [ -d·tan(α_v/2),  +d·tan(α_v/2) ]
+//   Row 2 — depth:       x_E^C[2] ∈ [  d − Δd,          d + Δd        ]
+//
+// where   x_E^C = R_B^C · x_E^B + P_CB^C
+//
+// Camera frame C is defined relative to the vehicle body frame B by:
+//   R_B^C  – rotation from B to C   (hard-coded as identity; TODO: calibration)
+//   P_CB^C – camera origin expressed in C (hard-coded as zero;  TODO: calibration)
+//
+// Jacobian:  J_cam = R_B^C · J_pos(EE, body)    [3 × (6+ArmDof)]
+//
+// NOTE: the bounds below are position-space values, not velocity references.
+// TODO: replace with a proper CBF barrier formulation (ḣ + λ·h ≥ 0).
+// ─────────────────────────────────────────────────────────────────────────────
+template <std::size_t ArmDof,
+          typename ManipulatorT = sfc::ManipulatorFromYAML<ArmDof>,
+          typename VehicleT    = sfc::VehicleBase>
+inline HQPCascadedTask makeVehicleVisionTask(
+    const sfc::UvmsSingleArm<ArmDof, ManipulatorT, VehicleT>& uvms,
+    const sfc::Vector<6 + ArmDof>& Kq,
+    const sfc::Vector<3>&          Kw,
+    const sfc::Real                alpha_h   = 2.0,          ///< horizontal full-FOV angle [rad]
+    const sfc::Real                alpha_v   = 2.0,          ///< vertical full-FOV angle [rad]
+    const sfc::Real                d         = 1.0,                ///< optimal imaging depth [m]
+    const sfc::Real                delta_d   = 0.5,          ///< depth half-band [m]
+    const sfc::Real                lambda    = 1.0, 
+    sfc::Vector<3>                 beta      = sfc::Vector<3>{1.0, 1.0, 1.0},
+    sfc::Vector<6 + ArmDof>        zeta_star = sfc::Vector<6 + ArmDof>{0},
+    std::string                    name      = "vehicle_vision")
+{
+    // ── Camera extrinsics (body frame B → camera frame C) ─────────────────
+    // TODO: replace with real calibration values
+    // R_B^C: rotation from body to camera — currently identity (Euler 0,0,0)
+    // P_CB^C: camera origin relative to body origin, expressed in C — currently zero
+    // const Eigen::Matrix3d R_B_C  = Eigen::Matrix3d::Identity();
+    // const Eigen::Vector3d P_CB_C = Eigen::Vector3d::Zero();
+    const sfc::Quaternion q_cam_in_B = sfc::Quaternion::fromRPY(0, 1.3, 0.0);
+    const sfc::RotationMatrix R_C_B_sfc = sfc::RotationMatrix::fromRPY(0, 1.3, 0.0);
+    const Eigen::Matrix3d R_B_C  = toEigen(R_C_B_sfc.m).transpose();
+    const Eigen::Vector3d P_BC_B{0.5, 0.0, -0.3};  // 暂时相机在机体原点
+    const Eigen::Vector3d P_CB_C = R_B_C * P_BC_B * (-1);
+    // ── EE position: body frame → camera frame ────────────────────────────
+    const sfc::Vector3    x_E_B_sfc = uvms.forwardKinematicsBodyFrame().translation();
+    const Eigen::Vector3d x_E_B{static_cast<double>(x_E_B_sfc(0)),
+                                 static_cast<double>(x_E_B_sfc(1)),
+                                 static_cast<double>(x_E_B_sfc(2))};
+    const Eigen::Vector3d x_E_C = R_B_C * x_E_B + P_CB_C;
+
+    // ── Jacobian in camera frame: J_cam = R_B^C · J_pos_ee_B ─────────────
+    // Take the 3 translational rows (0-2) of the 6-row body-frame EE Jacobian.
+    const sfc::Matrix<6, 6 + ArmDof> J_ee_B = uvms.jacobianBodyFrame();
+    Eigen::MatrixXd J_pos_B(3, static_cast<int>(6 + ArmDof));
+    for (std::size_t i = 0; i < 6 + ArmDof; ++i) {
+        J_pos_B(0, static_cast<int>(i)) = static_cast<double>(J_ee_B(0, i));
+        J_pos_B(1, static_cast<int>(i)) = static_cast<double>(J_ee_B(1, i));
+        J_pos_B(2, static_cast<int>(i)) = static_cast<double>(J_ee_B(2, i));
+    }
+    const Eigen::MatrixXd J_cam = R_B_C * J_pos_B;  // 3 × (6+ArmDof)
+
+    // ── Task bounds (CBF, λ=1): J_cam·dq ≥ lb_t  (ub_t = +∞) ───────────────
+    // Barrier functions (must stay ≥ 0):
+    //   h_0 = Z·tan(α_h/2) − x_E^C    (right FOV boundary)
+    //   h_1 = Z·tan(α_v/2) − y_E^C    (top  FOV boundary)
+    //   h_2 = (d+Δd) − Z               (far  depth boundary)
+    // CBF lower bound: lb_t(i) = −h_i  →  J·dq ≥ −h  ⟺  ḣ + h ≥ 0
+    const double Z     = x_E_C(2);
+    const double xc    = x_E_C(0);
+    const double yc    = x_E_C(1);
+    const double tan_h = std::tan(static_cast<double>(alpha_h) / 2.0);
+    const double tan_v = std::tan(static_cast<double>(alpha_v) / 2.0);
+    const double d_v   = static_cast<double>(d);
+    const double dd    = static_cast<double>(delta_d);
+
+    Eigen::VectorXd h_l(3), h_u(3);
+    h_u(0) = (Z * tan_h - xc);    // (Z·tan(α_h/2) − x_E^C)
+    h_u(1) = (Z * tan_v - yc);    // (Z·tan(α_v/2) − y_E^C)
+    h_u(2) = (d_v + dd - Z);      // (d+Δd − Z)
+    h_l(0) = xc + Z * tan_h;
+    h_l(1) = yc + Z * tan_v;
+    h_l(2) = Z + (d_v + dd);
+
+    Eigen::VectorXd lb_t(3), ub_t(3);
+    lb_t = -lambda * h_l;
+    ub_t =  lambda * h_u;
+
+    // ── Beta-blending with zeta_star ──────────────────────────────────────
+    const Eigen::VectorXd Jzs = J_cam * toEigen(zeta_star);
+    Eigen::VectorXd lb(3), ub(3);
+    for (int i = 0; i < 3; ++i) {
+        const double b = static_cast<double>(beta(i));
+        lb(i) = b * lb_t(i) + (1.0 - b) * Jzs(i);
+        ub(i) = b * ub_t(i) + (1.0 - b) * Jzs(i);
+    }
+
+    return HQPCascadedTask(J_cam, lb, ub, toEigenMatrix(Kq), toEigenMatrix(Kw), std::move(name));
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // DIAGNOSTICS
 // ═══════════════════════════════════════════════════════════════════════════

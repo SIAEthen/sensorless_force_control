@@ -47,7 +47,7 @@
 // from korean guys but never deactivate the tasks. it will always compute the next nominal task, high compute cost
 
 #ifdef USE_HQP
-  // #define USE_HQP_JOJO
+  #define USE_HQP_JOJO
   // #define USE_HQP_CONTINUOUS
-  #define USE_HQP_Korean
+  // #define USE_HQP_Korean
 #endif

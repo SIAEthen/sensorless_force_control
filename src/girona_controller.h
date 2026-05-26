@@ -311,6 +311,7 @@ class GironaController {
   bool enable_ee_task_{true};
   bool enable_nominalconfiguration_task_{true};
   bool enable_zero_velocity_task_{true};
+  bool enable_vehicle_vision_task_{false};
   bool enable_admittance_{false};
 
   ros::AsyncSpinner spinner_;

@@ -239,6 +239,7 @@ void GironaController::admittanceReconfigCb(sensorless_force_control::Admittance
     enable_ee_task_ = config.enable_ee_task;
     enable_nominalconfiguration_task_ = config.enable_nominalconfiguration_task;
     enable_zero_velocity_task_ = config.enable_zero_velocity_task;
+    enable_vehicle_vision_task_ = config.enable_vehicle_vision_task;
     enable_admittance_ = config.enable_admittance;
   }
 }
@@ -431,8 +432,24 @@ void GironaController::controlThread() {
         t2.transform.rotation.x = q_ee_d.x;
         t2.transform.rotation.y = q_ee_d.y;
         t2.transform.rotation.z = q_ee_d.z;
+        tf_broadcaster_d_.sendTransform(t2);
 
-        tf_broadcaster_r_.sendTransform(t2);
+        geometry_msgs::TransformStamped t3;
+        t3.header.stamp = ros::Time::now();
+        t3.header.frame_id = "girona1000/base_link";   
+        t3.child_frame_id = "girona1000/fake_cam";         
+
+        t3.transform.translation.x = 0.5;
+        t3.transform.translation.y = 0.0;
+        t3.transform.translation.z = -0.3;
+        Quaternion q_cam_in_B = sfc::Quaternion::fromRPY(0,1.3,0.0);
+        // 注意：你的 Quaternion 是 w,x,y,z
+        t3.transform.rotation.w = q_cam_in_B.w;
+        t3.transform.rotation.x = q_cam_in_B.x;
+        t3.transform.rotation.y = q_cam_in_B.y;
+        t3.transform.rotation.z = q_cam_in_B.z;
+        tf_broadcaster_d_.sendTransform(t3);
+        
         
         
         
@@ -593,6 +610,9 @@ void GironaController::controlThread() {
 
           sfc::Vector<12> man_Kq = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
           sfc::Vector<1>  man_Kw = sfc::Vector<1>{1} * kw_man_;
+
+          const sfc::Vector<12> vv_Kq = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
+          const sfc::Vector<3> vv_Kw = sfc::Vector<3>{1,1,1};
 
           sfc::Vector<12> rpy_Kq = sfc::Vector<12>{1,1,1,5,5,5, 1,1,1,1,1,1};
           sfc::Vector<3>  rpy_Kw = sfc::Vector<3>{1,1,1} * kw_rpy_;
@@ -877,6 +897,8 @@ void GironaController::controlThread() {
                 solver.addTask(hqp::makeManipulabilityTask(uvms_, man_Kq, man_Kw, man_min, 10.0,
                                                            man_activator.beta(), zs_man));
             }
+            
+
 
             // RPY
             if (!rpy_activator.isFullyInactive()) {
@@ -930,6 +952,13 @@ void GironaController::controlThread() {
             if (enable_manipulability_task) {
               solver.addTask(hqp::makeManipulabilityTask(uvms_, man_Kq, man_Kw, man_min, 10.0));
             }
+            
+            if (enable_vehicle_vision_task_) {
+              solver.addTask(hqp::makeVehicleVisionTask(uvms_, vv_Kq, vv_Kw,
+                                                        sfc::kPi / 3.0, sfc::kPi / 4.0,
+                                                        1.0, 0.3));
+            }
+            
             if (enable_sigma_rpy_task) {
               solver.addTask(hqp::makeRollPitchYawTask(uvms_, ref_rpy, gain_rpy, rpy_Kq, rpy_Kw));
             }
