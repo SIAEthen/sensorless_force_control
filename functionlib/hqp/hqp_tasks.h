@@ -717,4 +717,56 @@ inline sfc::Vector<3> getSelfCollisionDiagnostics(
     return sfc::Vector<3>{x_j3_B(0), x_j5_B(0), x_ee_B(0)};
 }
 
+// ── Vehicle vision diagnostics ────────────────────────────────────────────
+struct VehicleVisionDiagnostics {
+    sfc::Vector<3> x_E_C{};  ///< EE position in camera frame [x, y, z]
+    sfc::Vector<3> h_u{};    ///< upper barrier values [h_u0, h_u1, h_u2]
+    sfc::Vector<3> h_l{};    ///< lower barrier values [h_l0, h_l1, h_l2]
+};
+
+template <std::size_t ArmDof,
+          typename ManipulatorT = sfc::ManipulatorFromYAML<ArmDof>,
+          typename VehicleT    = sfc::VehicleBase>
+inline VehicleVisionDiagnostics getVehicleVisionDiagnostics(
+    const sfc::UvmsSingleArm<ArmDof, ManipulatorT, VehicleT>& uvms,
+    sfc::Real alpha_h = 1.0,
+    sfc::Real alpha_v = 1.0,
+    sfc::Real d       = 1.0,
+    sfc::Real delta_d = 0.5)
+{
+    // ── Same extrinsics as makeVehicleVisionTask ───────────────────────────
+    const sfc::RotationMatrix R_C_B_sfc = sfc::RotationMatrix::fromRPY(0, 1.3, 0.0);
+    const Eigen::Matrix3d R_B_C = toEigen<3, 3>(R_C_B_sfc.m).transpose();
+    const Eigen::Vector3d P_BC_B{0.5, 0.0, -0.3};
+    const Eigen::Vector3d P_CB_C = R_B_C * P_BC_B * (-1.0);
+
+    // ── EE position in camera frame ───────────────────────────────────────
+    const sfc::Vector3 x_E_B_sfc = uvms.forwardKinematicsBodyFrame().translation();
+    const Eigen::Vector3d x_E_B{static_cast<double>(x_E_B_sfc(0)),
+                                 static_cast<double>(x_E_B_sfc(1)),
+                                 static_cast<double>(x_E_B_sfc(2))};
+    const Eigen::Vector3d x_E_C_eig = R_B_C * x_E_B + P_CB_C;
+
+    // ── Barrier values ────────────────────────────────────────────────────
+    const double Z     = x_E_C_eig(2);
+    const double xc    = x_E_C_eig(0);
+    const double yc    = x_E_C_eig(1);
+    const double tan_h = std::tan(static_cast<double>(alpha_h) / 2.0);
+    const double tan_v = std::tan(static_cast<double>(alpha_v) / 2.0);
+    const double d_v   = static_cast<double>(d);
+    const double dd    = static_cast<double>(delta_d);
+
+    VehicleVisionDiagnostics diag;
+    diag.x_E_C = sfc::Vector<3>{static_cast<sfc::Real>(xc),
+                                  static_cast<sfc::Real>(yc),
+                                  static_cast<sfc::Real>(Z)};
+    diag.h_u = sfc::Vector<3>{static_cast<sfc::Real>(Z * tan_h - xc),
+                                static_cast<sfc::Real>(Z * tan_v - yc),
+                                static_cast<sfc::Real>(d_v + dd - Z)};
+    diag.h_l = sfc::Vector<3>{static_cast<sfc::Real>(xc + Z * tan_h),
+                                static_cast<sfc::Real>(yc + Z * tan_v),
+                                static_cast<sfc::Real>(Z + (d_v + dd))};
+    return diag;
+}
+
 }  // namespace hqp

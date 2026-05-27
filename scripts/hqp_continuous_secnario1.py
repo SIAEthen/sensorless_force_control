@@ -16,9 +16,6 @@ from dynamic_reconfigure.client import Client as DynClient
 
 
 
-
-
-
 def run():
     rospy.init_node("hqp_comparison_scenario1", anonymous=False)
     rospy.loginfo("Waiting for subscriber...")
