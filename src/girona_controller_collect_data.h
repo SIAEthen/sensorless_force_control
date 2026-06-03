@@ -19,90 +19,13 @@
 #include "thruster_error_define.h"
 
 #include <cmath>
-
-// True models
-inline double thrust2setpoint(double f) {
-  const double max_rpm = 1000.0;
-  const double KT = 0.48;
-  const double D = 0.18;
-  const double rho = 1000.0;
-
-  const double n2 = f / (KT * rho * std::pow(D, 4));
-  const double n = std::sqrt(std::abs(n2));
-  double s = 60.0 * n / max_rpm;
-  if(f>0.0) return s;
-  else return -s;
-}
-// True models
-inline double setpoint2thrust(double s) {
-  const double max_rpm = 1000.0;
-  const double KT = 0.48;
-  const double D = 0.18;
-  const double rho = 1000.0;
-  const double n = s * max_rpm / 60;
-  return KT*rho*std::pow(D, 4) * n *std::abs(n);
-}
+#include "exp_thruster_model.h"
+#include "exp_utilts.h"
+#include "src/thruster_allocator_qpoases.h"
 
 
-inline sfc::Vector<6> convertThrustsToSetpoints(const sfc::Vector<6> force){
-  sfc::Vector<6> setpoints{};
-  for(int8_t i=0; i<6;i++){
-    setpoints(i) = thrust2setpoint(force(i));
-  }
-  return setpoints;
-}
-
-inline sfc::Vector<6> convertThrustsToNoisedSetpoints(const sfc::Vector<6> force){
-  sfc::Vector<6> force_noised = sfc::applyThrusterForceError(force);
-  sfc::Vector<6> setpoints{};
-  for(int8_t i=0; i<6;i++){
-    setpoints(i) = thrust2setpoint(force_noised(i));
-  }
-  return setpoints;
-}
-
-inline sfc::Vector<6> convertSetpointsToThrusts(const sfc::Vector<6> setpoints){
-  sfc::Vector<6> thrusts{};
-  for(int8_t i=0; i<6;i++){
-    thrusts(i) = setpoint2thrust(setpoints(i));
-  }
-  return thrusts;
-}
-
-inline sfc::Vector<6> convertNoisedSetpointsToThrusts(const sfc::Vector<6> setpoints){
-  sfc::Vector<6> thrusts{};
-  for(int8_t i=0; i<6;i++){
-    thrusts(i) = setpoint2thrust(setpoints(i));
-  }
-  return sfc::removeThrusterForceError(thrusts);
-}
-
-
-// we need to detect if they are any collisions
-inline sfc::Vector<6> getRandomJointPosition(){
-  sfc::Vector<6> joint_position{};
-  sfc::Vector<6> min{-2.5*sfc::kPi4,      0.0,      0.0,  -2*sfc::kPi4, -sfc::kPi2,            0.0};
-  sfc::Vector<6> max{2.5*sfc::kPi4, sfc::kPi2,sfc::kPi2,   2*sfc::kPi4,        0.0,   3.5*sfc::kPi4};
-  bool collision = true;
-  while(collision){
-    // 1 sample
-    for(int8_t i=0; i<6;i++){
-      double r = static_cast<double>(rand()%100)/100.0;
-      joint_position(i) = r*(max(i)-min(i)) + min(i);
-    }
-    // 2 judge if collision
-    collision = false; //never collision
-  }
-  
-  return joint_position;
-}
-inline sfc::Real getRandomAngle(sfc::Real min,sfc::Real max){
-  sfc::Real angle;
-  sfc::Real r = static_cast<sfc::Real>(rand()%100)/100.0;
-  angle = r*(max-min) + min;
-  return angle;
-}
-
+#define QP_ALLOCATOR
+// #define LS_ALLOCATOR
 namespace sfc {
 
 class GironaController {
@@ -123,11 +46,12 @@ class GironaController {
  private:
   void interfaceThread();
   void controlThread();
- void initializeController();
+  void initializeController();
   void logFrame(double stamp_sec,
                 const sfc::Vector3& vehicle_xyz,
                 const sfc::Vector3& vehicle_rpy,
                 const sfc::Vector6& current_joint,
+                const sfc::Vector6& thrusts,
                 const sfc::Vector6& setpoints,
                 const sfc::Vector<12>& zeta,
                 const sfc::Vector3& xyz_err,
@@ -139,7 +63,10 @@ class GironaController {
   ros::NodeHandle pnh_;
   GironaInterface interface_;
   UvmsType uvms_;
-  sfc::ThrusterAllocatorDlsOffset<6> allocator_;
+
+  ThrusterAllocatorQpoases allocator_;
+  sfc::Real thrust_offset_{static_cast<sfc::Real>(0.0)};
+
   sfc::PidController<6> pid_;
   sfc::PController<6> p_;
 

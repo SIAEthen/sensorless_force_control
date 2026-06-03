@@ -71,10 +71,12 @@ target_link_libraries(girona_controller
 add_executable(girona_controller_collect_data
   src/girona_controller_collect_data.cpp
   src/girona_interface.cpp
+  src/thruster_allocator_qpoases.cpp
 )
 target_link_libraries(girona_controller_collect_data
   ${catkin_LIBRARIES}
   yaml-cpp
+  ${QPOASES_LIBRARY}
 )
 
 

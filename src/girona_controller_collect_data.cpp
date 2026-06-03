@@ -63,6 +63,7 @@ void GironaController::interfaceThread() {
 void GironaController::controlThread() {
     ros::Duration(1.0).sleep();
     ros::Rate rate(10.0);
+    sfc::Vector6 thrust_forces{};
     sfc::Vector6 setpoints{};
     sfc::Vector6 joint_velocities{};
     ros::Time last = ros::Time::now();
@@ -73,7 +74,6 @@ void GironaController::controlThread() {
     int stable_count = 0;
     while (control_running_.load() && ros::ok()) {
         
-            
         // joint_velocities[0] = -0.1;
         // joint_velocities[1] = -0.1;
         // joint_velocities[2] = -0.1;
@@ -90,8 +90,6 @@ void GironaController::controlThread() {
         uvms_.setVehicleState(interface_.vehicleState());
         uvms_.setManipulatorState(interface_.manipulatorState());
         const sfc::Vector6 ft_sensor_feedback = interface_.wrench();
-
-
 
 
         constexpr std::size_t kSysDof = 12;
@@ -132,7 +130,6 @@ void GironaController::controlThread() {
           sfc::print(zeta,std::cout,"zeta");
         #endif
 
-
         // Task 3: nominal joint configuration
         const sfc::Vector<6> nominal_config = desired_joint_position;
         const sfc::Vector<6> nominal_gain{1,1,1,1,1,1};
@@ -170,6 +167,7 @@ void GironaController::controlThread() {
                         uvms_.vehiclePosition(),
                         uvms_.vehicleRpy(),
                         uvms_.manipulatorPosition(),
+                        thrust_forces,
                         setpoints,
                         zeta,
                         sigma_xyz,
@@ -201,8 +199,8 @@ void GironaController::controlThread() {
         sfc::Vector6 control_wrench = pid_.update(error,dt);
 
 
-        sfc::Vector6 force = allocator_.allocate(control_wrench,0.0001);
-        setpoints = convertThrustsToSetpoints(force);
+        thrust_forces = allocator_.allocate(control_wrench,0.0001);
+        setpoints = convertThrustsToSetpoints(thrust_forces);
         #ifdef DEBUG_CONTROLLER
           sfc::print(control_wrench,std::cout,"control wrench");
           sfc::print(setpoints,std::cout,"setpoints");
@@ -214,7 +212,7 @@ void GironaController::controlThread() {
         joint_velocities(4) = zeta(10);
         joint_velocities(5) = zeta(11);
 
-        interface_.sendThrusterSetpoints(convertThrustsToNoisedSetpoints(force));
+        interface_.sendThrusterSetpoints(setpoints);
         interface_.sendJointVelocityCommand(joint_velocities);
         rate.sleep();
       }
@@ -265,7 +263,7 @@ void GironaController::initializeController() {
   
   ROS_INFO("Now we initialize the TCM matrix from Yaml");
   const std::string tcm_yaml_path = 
-  "/home/sia/girona_ws/src/sensorless_force_control/config/control/tcm_with_thruster_torque_with_installation_error.yaml";
+  "/home/sia/girona_ws/src/sensorless_force_control/config/control/tcm_with_thruster_torque.yaml";
   try {
     YAML::Node root = YAML::LoadFile(tcm_yaml_path);
     const YAML::Node tcm_node = root["tcm"];
@@ -292,16 +290,20 @@ void GironaController::initializeController() {
         tcm(r, c) = static_cast<sfc::Real>(row[c].as<double>());
       }
     }
+
+    sfc::Vector6 desired_input{0.55,0.55,0.55,0.55,0,0};
     allocator_.setAllocationMatrix(tcm);
     sfc::Vector6 max_force{100,100,100,100,100,100};
     sfc::Vector6 min_force{-100,-100,-100,-100,-100,-100};
     allocator_.setLimits(min_force,max_force);
-    sfc::Real thrust_offset = 55.0;
-    const Vector6 offset = Vector6{thrust_offset,thrust_offset,thrust_offset,thrust_offset,0.0,0.0};
-    allocator_.setHorizontalOffset(offset);
-
+    allocator_.setNormalizedInputScale(max_force);
+    allocator_.setDesiredNormalizedInput(desired_input);
+    allocator_.setWrenchWeights(sfc::Vector6{1.0, 1.0, 1.0, 1.0, 1.0, 1.0});
+    allocator_.setWorkingPointWeights(sfc::Vector6{1.0, 1.0, 1.0, 1.0, 1.0, 1.0});
+    allocator_.setSmoothnessWeights(sfc::Vector6{0.1, 0.1, 0.1, 0.1, 0.1, 0.1});
     sfc::print(tcm,std::cout,"TCM matrix");
     ROS_INFO("TCM matrix loaded and set.");
+
   } catch (const std::exception& ex) {
     ROS_ERROR("Failed to load TCM: %s", ex.what());
   }
@@ -321,7 +323,7 @@ void GironaController::initializeController() {
   std::tm tm_now{};
   localtime_r(&now, &tm_now);
   std::ostringstream name;
-  name << "noised_thruster_calibration_data_" << std::put_time(&tm_now, "%Y%m%d%H%M%S") << ".csv";
+  name << "pool_experiment_" << std::put_time(&tm_now, "%Y%m%d%H%M%S") << ".csv";
   const std::string csv_path = log_dir + name.str();
 
   logger_ = sfc::Logger(csv_path);
@@ -338,6 +340,7 @@ void GironaController::logFrame(double stamp_sec,
                                 const sfc::Vector3& vehicle_xyz,
                                 const sfc::Vector3& vehicle_rpy,
                                 const sfc::Vector6& current_joint,
+                                const sfc::Vector6& thrusts,
                                 const sfc::Vector6& setpoints,
                                 const sfc::Vector<12>& zeta,
                                 const sfc::Vector3& xyz_err,
@@ -351,6 +354,7 @@ void GironaController::logFrame(double stamp_sec,
   logger_.logVector("vehicle_xyz", vehicle_xyz);
   logger_.logVector("vehicle_rpy", vehicle_rpy);
   logger_.logVector("current_joint", current_joint);
+  logger_.logVector("thrust_forces", thrusts);
   logger_.logVector("setpoints", setpoints);
   logger_.logVector("zeta", zeta);
   logger_.logVector("xyz_err", xyz_err);

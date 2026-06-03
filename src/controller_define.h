@@ -7,12 +7,12 @@
 
 #define USE_LOG
 #define USE_CONTROL
-#define USE_ADMITTANCE
+#define USE_ADMITTANCE // enable admittance, default is fixed gain admittance controller
 // #define USE_VARIABLE_ADMITTANCE
-#define USE_IROS_FORCE
+// #define USE_IROS_FORCE
 // choose one dynamic controller to define
-// #define STSMC
-#define PID
+#define STSMC
+// #define PID
 
 // #define S1
 // #define S2

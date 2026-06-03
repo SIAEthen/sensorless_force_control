@@ -53,105 +53,10 @@
   #include <cmath>
 #endif
 
-// True models
-inline double thrust2setpoint(double f) {
-  const double max_rpm = 1000.0;
-  const double KT = 0.48;
-  const double D = 0.18;
-  const double rho = 1000.0;
-
-  const double n2 = f / (KT * rho * std::pow(D, 4));
-  const double n = std::sqrt(std::abs(n2));
-  double s = 60.0 * n / max_rpm;
-  if(f>0.0) return s;
-  else return -s;
-}
-// True models
-inline double setpoint2thrust(double s) {
-  const double max_rpm = 1000.0;
-  const double KT = 0.48;
-  const double D = 0.18;
-  const double rho = 1000.0;
-  const double n = s * max_rpm / 60;
-  return KT*rho*std::pow(D, 4) * n *std::abs(n);
-}
-
-inline sfc::Vector<6> convertThrustsToSetpoints(const sfc::Vector<6> force){
-  sfc::Vector<6> setpoints{};
-  for(int8_t i=0; i<6;i++){
-    setpoints(i) = thrust2setpoint(force(i));
-  }
-  return setpoints;
-}
-
-inline sfc::Vector<6> convertThrustsToNoisedSetpoints(const sfc::Vector<6> force){
-  sfc::Vector<6> force_noised = sfc::applyThrusterForceError(force);
-  sfc::Vector<6> setpoints{};
-  for(int8_t i=0; i<6;i++){
-    setpoints(i) = thrust2setpoint(force_noised(i));
-  }
-  return setpoints;
-}
-
-inline sfc::Vector<6> convertSetpointsToThrusts(const sfc::Vector<6> setpoints){
-  sfc::Vector<6> thrusts{};
-  for(int8_t i=0; i<6;i++){
-    thrusts(i) = setpoint2thrust(setpoints(i));
-  }
-  return thrusts;
-}
-
-inline sfc::Vector<6> convertNoisedSetpointsToThrusts(const sfc::Vector<6> setpoints){
-  sfc::Vector<6> thrusts{};
-  for(int8_t i=0; i<6;i++){
-    thrusts(i) = setpoint2thrust(setpoints(i));
-  }
-  return sfc::removeThrusterForceError(thrusts);
-}
+#include "exp_thruster_model.h"
+#include "exp_utilts.h"
 
 
-inline void velcmd2configurations(const sfc::Vector6& vel_cmd,
-                                  sfc::Vector3& x_ee_d,
-                                  sfc::Quaternion& q_ee_d,
-                                  sfc::Real dt) {
-  if (!vel_cmd.isFinite() || !x_ee_d.isFinite() || !sfc::isFinite(dt) || dt <= sfc::zero()) {
-    throw std::runtime_error("velcmd2configurations: invalid input");
-  }
-  if (!std::isfinite(q_ee_d.w) || !std::isfinite(q_ee_d.x) ||
-      !std::isfinite(q_ee_d.y) || !std::isfinite(q_ee_d.z)) {
-    throw std::runtime_error("velcmd2configurations: invalid quaternion");
-  }
-
-  // Integrate position.
-  x_ee_d(0) += vel_cmd(0) * dt;
-  x_ee_d(1) += vel_cmd(1) * dt;
-  x_ee_d(2) += vel_cmd(2) * dt;
-
-  // Integrate orientation from angular velocity [rx, ry, rz].
-  const sfc::Vector3 omega{vel_cmd(3), vel_cmd(4), vel_cmd(5)};
-  const sfc::Real omega_norm = sfc::vectorNorm(omega);
-
-  sfc::Quaternion dq{};
-  if (omega_norm > static_cast<sfc::Real>(1e-6)) {
-    const sfc::Real half_theta = static_cast<sfc::Real>(0.5) * omega_norm * dt;
-    const sfc::Real sin_half = std::sin(half_theta);
-    const sfc::Real cos_half = std::cos(half_theta);
-    const sfc::Real scale = sin_half / omega_norm;
-    dq.w = cos_half;
-    dq.x = omega(0) * scale;
-    dq.y = omega(1) * scale;
-    dq.z = omega(2) * scale;
-  } else {
-    const sfc::Real scale = static_cast<sfc::Real>(0.5) * dt;
-    dq.w = static_cast<sfc::Real>(1.0);
-    dq.x = omega(0) * scale;
-    dq.y = omega(1) * scale;
-    dq.z = omega(2) * scale;
-  }
-
-  // post multiply means rotate within local frame, not inertia frame.
-  q_ee_d = (q_ee_d * dq).normalized();
-}
 
 namespace sfc {
 
@@ -196,13 +101,17 @@ class GironaController {
   sfc::Vector6 dynamic_offset_;
   sfc::Vector<4> wrenchsensor_parameters_;
   sfc::FirstOrderLowPassFilter<6> wrench_filter_;
-  #ifdef USE_VARIABLE_ADMITTANCE
-    sfc::QuaternionAdmittanceController admitance_controller_;
-  #elif defined(USE_IROS_FORCE)
-    sfc::IrosForceAdmittanceController iros_force_controller_;
-  #else
-    sfc::VariableAdmittanceController variable_admitance_controller_;
+  
+  #ifdef USE_ADMITTANCE
+    #ifdef USE_VARIABLE_ADMITTANCE
+      sfc::VariableAdmittanceController variable_admitance_controller_;
+    #elif defined(USE_IROS_FORCE)
+      sfc::IrosForceAdmittanceController iros_force_controller_;
+    #else
+      sfc::QuaternionAdmittanceController admitance_controller_;
+    #endif
   #endif
+
 
   dynamic_reconfigure::Server<sensorless_force_control::AdmittanceConfig> admittance_server_;
   #ifdef USE_LOG

@@ -113,6 +113,8 @@ void GironaController::admittanceReconfigCb(sensorless_force_control::Admittance
   stiffness(3) = static_cast<sfc::Real>(config.stiffness_4);
   stiffness(4) = static_cast<sfc::Real>(config.stiffness_5);
   stiffness(5) = static_cast<sfc::Real>(config.stiffness_6);
+  
+  
   #ifdef USE_ADMITTANCE
     #ifdef USE_VARIABLE_ADMITTANCE
       variable_admitance_controller_.setGains(mass, damping, stiffness);
@@ -1012,10 +1014,7 @@ void GironaController::controlThread() {
             res = solver.solve();
             zeta_sat = hqp::toVector<12>(res.qdot);
           #endif
-          // record the time consumption of one task
-          const double kin_ctrl_time_us = std::chrono::duration<double, std::micro>(
-              std::chrono::steady_clock::now() - t_ctrl_start).count();
-
+          
           for (std::size_t lvl = 0; lvl < res.slacks.size(); ++lvl) {
             const std::string& tn = solver.taskName(lvl);
             const Eigen::VectorXd& w = res.slacks[lvl];
@@ -1048,6 +1047,10 @@ void GironaController::controlThread() {
             }
           #endif
         #endif
+        // record the time consumption of one task
+        const double kin_ctrl_time_us = std::chrono::duration<double, std::micro>(
+              std::chrono::steady_clock::now() - t_ctrl_start).count();
+
 
         sfc::Vector6 nu_d{zeta_sat(0),zeta_sat(1),zeta_sat(2),zeta_sat(3),zeta_sat(4),zeta_sat(5)};
         sfc::Vector6 nu_error = nu_d - uvms_.vehicleVelocity();
@@ -1135,7 +1138,7 @@ void GironaController::controlThread() {
         const Vector6 v_ee = uvms_.endEffectorVelocityNed(nu, uvms_.manipulatorVelocity());
         const Vector3 acc = linear_acc_observer_.update(nu_1,dt);
                              
-        const Vector6 thrusts = convertSetpointsToThrusts(setpoints);
+        const Vector6 thrusts = thruster_force; // here we already calculated this
         const Vector6 computed_control_wrench = allocator_.computeWrench(thrusts);
         const Vector6 gravity_minus_tau_v = gravity - computed_control_wrench;
         const Vector6 tau_e = wrench_observer_.update(gravity_minus_tau_v,acc,nu_2,dt);
@@ -1268,16 +1271,11 @@ void GironaController::controlThread() {
             publishArray6(k_stiff_pub_, iros_force_stiffness);
           #endif
           
-          
         #endif
 
         #ifdef USE_CONTROL
-          if (enable_thruster_command) {
-            interface_.sendThrusterSetpoints(convertThrustsToNoisedSetpoints(thruster_force));
-          }
-          if (enable_arm_command) {
-            interface_.sendJointVelocityCommand(joint_velocity_desired);
-          }
+          if (enable_thruster_command) { interface_.sendThrusterSetpoints(setpoints); }
+          if (enable_arm_command) { interface_.sendJointVelocityCommand(joint_velocity_desired); }
         #endif
 
         #ifdef USE_LOG
@@ -1500,7 +1498,7 @@ void GironaController::initializeController() {
   
   ROS_INFO("Now we initialize the TCM matrix from Yaml");
   const std::string tcm_yaml_path = 
-          "/home/sia/girona_ws/src/sensorless_force_control/config/control/tcm_with_thruster_torque_with_installation_error.yaml";
+          "/home/sia/girona_ws/src/sensorless_force_control/config/control/tcm_with_thruster_torque.yaml";
   try {
     YAML::Node root = YAML::LoadFile(tcm_yaml_path);
     const YAML::Node tcm_node = root["tcm"];
