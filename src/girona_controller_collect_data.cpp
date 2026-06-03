@@ -69,6 +69,8 @@ void GironaController::controlThread() {
     ros::Time reset_time = ros::Time::now();
     Vector6 desired_joint_position = getRandomJointPosition();
     sfc::Real desired_pitch = getRandomAngle(-0.2,0.1);
+
+    int stable_count = 0;
     while (control_running_.load() && ros::ok()) {
         
             
@@ -144,36 +146,39 @@ void GironaController::controlThread() {
           sfc::print(zeta,std::cout,"velocity");
         #endif
 
+        // add logic, we have to stay in the threshold for a certain time.
         if( sfc::vectorNorm(uvms_.vehicleVelocity())< 0.01
             && sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position)< 0.05
             && std::fabs(desired_pitch - uvms_.vehicleRpy()(1))< 0.02
             && (ros::Time::now().toSec()-reset_time.toSec()) > 30 // big than 30 seconds
-          )
-          {
-             std::cout << " vehicle velocity norm " << sfc::vectorNorm(uvms_.vehicleVelocity()) 
-            << " joint pos err norm " 
-            << sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position) 
-            << " pitch err " 
-            << std::fabs(desired_pitch - uvms_.vehicleRpy()(1)) 
-            << std::endl;
-
-            reset_time = ros::Time::now(); //reset time
-            desired_joint_position = getRandomJointPosition();
-            desired_pitch = getRandomAngle(-0.2,0.1);
-            sfc::print(desired_joint_position,std::cout,"desired_joint_position");
-            std::cout << "next desired pitch is " << desired_pitch << std::endl;
-            logFrame(ros::Time::now().toSec(),
-                      uvms_.vehiclePosition(),
-                      uvms_.vehicleRpy(),
-                      uvms_.manipulatorPosition(),
-                      setpoints,
-                      zeta,
-                      sigma_xyz,
-                      sigma_rpy,
-                      sigma_nominal,
-                      ft_sensor_feedback);
-            
+          ){
+            stable_count++;
+            if (stable_count >50){ //10hz
+              stable_count=0;
+              std::cout << " vehicle velocity norm " << sfc::vectorNorm(uvms_.vehicleVelocity()) 
+              << " joint pos err norm " 
+              << sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position) 
+              << " pitch err " 
+              << std::fabs(desired_pitch - uvms_.vehicleRpy()(1)) 
+              << std::endl;
+              reset_time = ros::Time::now(); //reset time
+              desired_joint_position = getRandomJointPosition();
+              desired_pitch = getRandomAngle(-0.2,0.1);
+              sfc::print(desired_joint_position,std::cout,"desired_joint_position");
+              std::cout << "next desired pitch is " << desired_pitch << std::endl;
+              logFrame(ros::Time::now().toSec(),
+                        uvms_.vehiclePosition(),
+                        uvms_.vehicleRpy(),
+                        uvms_.manipulatorPosition(),
+                        setpoints,
+                        zeta,
+                        sigma_xyz,
+                        sigma_rpy,
+                        sigma_nominal,
+                        ft_sensor_feedback);
+            }
           }else{
+            stable_count=0;
             // std::cout << " vehicle velocity norm " << sfc::vectorNorm(uvms_.vehicleVelocity()) 
             // << " joint pos err norm " 
             // << sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position) 
@@ -181,7 +186,8 @@ void GironaController::controlThread() {
             // << std::fabs(desired_pitch - uvms_.vehicleRpy()(1)) 
             // << std::endl;
           }
-        if(ros::Time::now().toSec()-reset_time.toSec() > 300 ){
+        
+        if(ros::Time::now().toSec()-reset_time.toSec() > 200 ){
           std::cout << " Time out. " << std::endl;
           reset_time = ros::Time::now(); //reset time
           desired_joint_position = getRandomJointPosition();

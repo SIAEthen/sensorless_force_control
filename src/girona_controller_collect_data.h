@@ -78,15 +78,22 @@ inline sfc::Vector<6> convertNoisedSetpointsToThrusts(const sfc::Vector<6> setpo
 }
 
 
-
+// we need to detect if they are any collisions
 inline sfc::Vector<6> getRandomJointPosition(){
   sfc::Vector<6> joint_position{};
-  sfc::Vector<6> min{-2.5*sfc::kPi4,      0.0,      0.0,  -3*sfc::kPi4, -sfc::kPi4,            0.0};
-  sfc::Vector<6> max{2.5*sfc::kPi4, sfc::kPi2,sfc::kPi2,   3*sfc::kPi4,        0.0,   3.5*sfc::kPi4};
-  for(int8_t i=0; i<6;i++){
-    double r = static_cast<double>(rand()%100)/100.0;
-    joint_position(i) = r*(max(i)-min(i)) + min(i);
+  sfc::Vector<6> min{-2.5*sfc::kPi4,      0.0,      0.0,  -2*sfc::kPi4, -sfc::kPi2,            0.0};
+  sfc::Vector<6> max{2.5*sfc::kPi4, sfc::kPi2,sfc::kPi2,   2*sfc::kPi4,        0.0,   3.5*sfc::kPi4};
+  bool collision = true;
+  while(collision){
+    // 1 sample
+    for(int8_t i=0; i<6;i++){
+      double r = static_cast<double>(rand()%100)/100.0;
+      joint_position(i) = r*(max(i)-min(i)) + min(i);
+    }
+    // 2 judge if collision
+    collision = false; //never collision
   }
+  
   return joint_position;
 }
 inline sfc::Real getRandomAngle(sfc::Real min,sfc::Real max){

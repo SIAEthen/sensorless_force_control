@@ -142,43 +142,68 @@ void GironaController::admittanceReconfigCb(sensorless_force_control::Admittance
   linear_acc_observer_.setCutoffHz(static_cast<sfc::Real>(config.linear_acc_cutoff_hz));
   wrench_filter_.setCutoffHz(static_cast<sfc::Real>(config.wrench_filter_cutoff_hz));
 
-#ifdef STSMC
-  sfc::Vector6 stsmc_k1{};
-  sfc::Vector6 stsmc_k2{};
-  sfc::Vector6 stsmc_lambda{};
-  sfc::Vector6 stsmc_eps{};
+  #ifdef STSMC
+    sfc::Vector6 stsmc_k1{};
+    sfc::Vector6 stsmc_k2{};
+    sfc::Vector6 stsmc_lambda{};
+    sfc::Vector6 stsmc_eps{};
 
-  stsmc_k1(0) = static_cast<sfc::Real>(config.stsmc_k1_1);
-  stsmc_k1(1) = static_cast<sfc::Real>(config.stsmc_k1_2);
-  stsmc_k1(2) = static_cast<sfc::Real>(config.stsmc_k1_3);
-  stsmc_k1(3) = static_cast<sfc::Real>(config.stsmc_k1_4);
-  stsmc_k1(4) = static_cast<sfc::Real>(config.stsmc_k1_5);
-  stsmc_k1(5) = static_cast<sfc::Real>(config.stsmc_k1_6);
+    stsmc_k1(0) = static_cast<sfc::Real>(config.stsmc_k1_1);
+    stsmc_k1(1) = static_cast<sfc::Real>(config.stsmc_k1_2);
+    stsmc_k1(2) = static_cast<sfc::Real>(config.stsmc_k1_3);
+    stsmc_k1(3) = static_cast<sfc::Real>(config.stsmc_k1_4);
+    stsmc_k1(4) = static_cast<sfc::Real>(config.stsmc_k1_5);
+    stsmc_k1(5) = static_cast<sfc::Real>(config.stsmc_k1_6);
 
-  stsmc_k2(0) = static_cast<sfc::Real>(config.stsmc_k2_1);
-  stsmc_k2(1) = static_cast<sfc::Real>(config.stsmc_k2_2);
-  stsmc_k2(2) = static_cast<sfc::Real>(config.stsmc_k2_3);
-  stsmc_k2(3) = static_cast<sfc::Real>(config.stsmc_k2_4);
-  stsmc_k2(4) = static_cast<sfc::Real>(config.stsmc_k2_5);
-  stsmc_k2(5) = static_cast<sfc::Real>(config.stsmc_k2_6);
+    stsmc_k2(0) = static_cast<sfc::Real>(config.stsmc_k2_1);
+    stsmc_k2(1) = static_cast<sfc::Real>(config.stsmc_k2_2);
+    stsmc_k2(2) = static_cast<sfc::Real>(config.stsmc_k2_3);
+    stsmc_k2(3) = static_cast<sfc::Real>(config.stsmc_k2_4);
+    stsmc_k2(4) = static_cast<sfc::Real>(config.stsmc_k2_5);
+    stsmc_k2(5) = static_cast<sfc::Real>(config.stsmc_k2_6);
 
-  stsmc_lambda(0) = static_cast<sfc::Real>(config.stsmc_lambda_1);
-  stsmc_lambda(1) = static_cast<sfc::Real>(config.stsmc_lambda_2);
-  stsmc_lambda(2) = static_cast<sfc::Real>(config.stsmc_lambda_3);
-  stsmc_lambda(3) = static_cast<sfc::Real>(config.stsmc_lambda_4);
-  stsmc_lambda(4) = static_cast<sfc::Real>(config.stsmc_lambda_5);
-  stsmc_lambda(5) = static_cast<sfc::Real>(config.stsmc_lambda_6);
+    stsmc_lambda(0) = static_cast<sfc::Real>(config.stsmc_lambda_1);
+    stsmc_lambda(1) = static_cast<sfc::Real>(config.stsmc_lambda_2);
+    stsmc_lambda(2) = static_cast<sfc::Real>(config.stsmc_lambda_3);
+    stsmc_lambda(3) = static_cast<sfc::Real>(config.stsmc_lambda_4);
+    stsmc_lambda(4) = static_cast<sfc::Real>(config.stsmc_lambda_5);
+    stsmc_lambda(5) = static_cast<sfc::Real>(config.stsmc_lambda_6);
 
-  stsmc_eps(0) = static_cast<sfc::Real>(config.stsmc_eps_1);
-  stsmc_eps(1) = static_cast<sfc::Real>(config.stsmc_eps_2);
-  stsmc_eps(2) = static_cast<sfc::Real>(config.stsmc_eps_3);
-  stsmc_eps(3) = static_cast<sfc::Real>(config.stsmc_eps_4);
-  stsmc_eps(4) = static_cast<sfc::Real>(config.stsmc_eps_5);
-  stsmc_eps(5) = static_cast<sfc::Real>(config.stsmc_eps_6);
+    stsmc_eps(0) = static_cast<sfc::Real>(config.stsmc_eps_1);
+    stsmc_eps(1) = static_cast<sfc::Real>(config.stsmc_eps_2);
+    stsmc_eps(2) = static_cast<sfc::Real>(config.stsmc_eps_3);
+    stsmc_eps(3) = static_cast<sfc::Real>(config.stsmc_eps_4);
+    stsmc_eps(4) = static_cast<sfc::Real>(config.stsmc_eps_5);
+    stsmc_eps(5) = static_cast<sfc::Real>(config.stsmc_eps_6);
 
-  stsmc_.setGains(stsmc_k1, stsmc_k2, stsmc_lambda);
-  stsmc_.setBoundaryLayer(stsmc_eps);
-#endif
+    stsmc_.setGains(stsmc_k1, stsmc_k2, stsmc_lambda);
+    stsmc_.setBoundaryLayer(stsmc_eps);
+  #endif
+
+  #ifdef PID
+    sfc::Vector6 pid_kp{};
+    sfc::Vector6 pid_ki{};
+    sfc::Vector6 pid_kd{};
+    pid_kp(0) = static_cast<sfc::Real>(config.pid_kp_1);
+    pid_kp(1) = static_cast<sfc::Real>(config.pid_kp_2);
+    pid_kp(2) = static_cast<sfc::Real>(config.pid_kp_3);
+    pid_kp(3) = static_cast<sfc::Real>(config.pid_kp_4);
+    pid_kp(4) = static_cast<sfc::Real>(config.pid_kp_5);
+    pid_kp(5) = static_cast<sfc::Real>(config.pid_kp_6);
+    pid_ki(0) = static_cast<sfc::Real>(config.pid_ki_1);
+    pid_ki(1) = static_cast<sfc::Real>(config.pid_ki_2);
+    pid_ki(2) = static_cast<sfc::Real>(config.pid_ki_3);
+    pid_ki(3) = static_cast<sfc::Real>(config.pid_ki_4);
+    pid_ki(4) = static_cast<sfc::Real>(config.pid_ki_5);
+    pid_ki(5) = static_cast<sfc::Real>(config.pid_ki_6);
+    pid_kd(0) = static_cast<sfc::Real>(config.pid_kd_1);
+    pid_kd(1) = static_cast<sfc::Real>(config.pid_kd_2);
+    pid_kd(2) = static_cast<sfc::Real>(config.pid_kd_3);
+    pid_kd(3) = static_cast<sfc::Real>(config.pid_kd_4);
+    pid_kd(4) = static_cast<sfc::Real>(config.pid_kd_5);
+    pid_kd(5) = static_cast<sfc::Real>(config.pid_kd_6);
+    pid_.setGains(pid_kp, pid_ki, pid_kd);
+  #endif
 
   {
     std::lock_guard<std::mutex> lock(kin_config_mutex_);
@@ -1042,7 +1067,10 @@ void GironaController::controlThread() {
         sfc::Vector6 thruster_force{};
         if (enable_thruster_command) {
           #ifdef PID
-            control_wrench = pid_.update(nu_error,dt);
+            // sfc::Vector6 pid_err{};
+            // pid_err(0) = nu_error(0);
+            // pid_err(0) = nu_error(1);
+            control_wrench = pid_.update(nu_error,dt)+gravity;
           #endif
           #ifdef STSMC
             // control_wrench = stsmc_.update(nu_error,Vector6{},gravity,dt);
@@ -1054,7 +1082,12 @@ void GironaController::controlThread() {
           thruster_force = allocator_.allocate(control_wrench);
           setpoints = convertThrustsToSetpoints(thruster_force);
         } else {
-          stsmc_.reset();
+          #ifdef PID
+            pid_.reset();
+          #endif
+          #ifdef STSMC
+            stsmc_.reset();
+          #endif
         }
         joint_velocity_desired(0) = zeta_sat(6);
         joint_velocity_desired(1) = zeta_sat(7);
@@ -1513,7 +1546,7 @@ void GironaController::initializeController() {
     sfc::Vector6 kp{50,50,50,20,30,20};
     sfc::Vector6 ki{1,1,5,1,5,1};
     sfc::Vector6 kd{8,8,8,2,4,4};
-    sfc::Vector6 i_sat{50,50,100,10,50,10};
+    sfc::Vector6 i_sat{100,100,100,100,100,100};
     pid_.setGains(kp,ki,kd);
     pid_.setIntegratorLimits(i_sat);
   #endif

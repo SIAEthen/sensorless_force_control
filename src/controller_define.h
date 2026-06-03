@@ -1,3 +1,4 @@
+
 #define DEBUG_CONTROLLER
 // #define DEBUG_OBSERVER
 #define DEBUG_ROSTOPIC
@@ -10,8 +11,8 @@
 // #define USE_VARIABLE_ADMITTANCE
 #define USE_IROS_FORCE
 // choose one dynamic controller to define
-#define STSMC
-// #define PID
+// #define STSMC
+#define PID
 
 // #define S1
 // #define S2
