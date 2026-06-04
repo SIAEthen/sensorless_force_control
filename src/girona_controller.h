@@ -176,6 +176,10 @@ class GironaController {
   sfc::Real jointlimit_rho_{static_cast<sfc::Real>(0.2)};
   sfc::Real jointlimit_ds_{static_cast<sfc::Real>(0.2)};
   sfc::Real jointlimit_gain_{static_cast<sfc::Real>(0.1)};
+  sfc::Real desired_depth_{static_cast<sfc::Real>(2.0)}; ///< desired vehicle depth [m]
+  sfc::Real v1_lim_{static_cast<sfc::Real>(0.2)};        ///< vehicle linear  velocity limit [m/s]
+  sfc::Real v2_lim_{static_cast<sfc::Real>(0.2)};        ///< vehicle angular velocity limit [rad/s]
+  sfc::Real dq_lim_{static_cast<sfc::Real>(0.1)};        ///< manipulator joint velocity limit [rad/s]
   sfc::Vector3 ref_rpy_{0.0, 0.0, sfc::kPi2 / 2.0};
   sfc::Vector3 gain_rpy_{0.0, 1.0, 2.0};
   sfc::Vector6 gain_ee_{1.0, 1.0, 1.0, 1.0, 1.0, 1.0};

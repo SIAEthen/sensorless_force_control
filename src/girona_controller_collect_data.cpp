@@ -10,6 +10,63 @@
 // #define DEBUG_CONTROLLER 
 namespace sfc {
 
+void GironaController::reconfigCb(sensorless_force_control::ControllerCollectDataConfig& config,
+                                  uint32_t /*level*/) {
+  std::lock_guard<std::mutex> lock(cfg_mutex_);
+
+  xyz_ref_(0) = static_cast<sfc::Real>(config.xyz_ref_1);
+  xyz_ref_(1) = static_cast<sfc::Real>(config.xyz_ref_2);
+  xyz_ref_(2) = static_cast<sfc::Real>(config.xyz_ref_3);
+
+  desired_pitch_ = static_cast<sfc::Real>(config.desired_pitch);
+  ref_yaw_       = static_cast<sfc::Real>(config.ref_rpy_3);
+
+  gain_rpy_(0) = static_cast<sfc::Real>(config.gain_rpy_1);
+  gain_rpy_(1) = static_cast<sfc::Real>(config.gain_rpy_2);
+  gain_rpy_(2) = static_cast<sfc::Real>(config.gain_rpy_3);
+
+  gain_nc_  = static_cast<sfc::Real>(config.gain_nc);
+  dq_lim_   = static_cast<sfc::Real>(config.dq_lim);
+  
+  // when you change the desired input, you should reset the controller manually
+  if (fabs(allocator_desired_input_-static_cast<sfc::Real>(config.allocator_desired_input))>1e-6)
+  {
+    allocator_desired_input_ = static_cast<sfc::Real>(config.allocator_desired_input);
+    const sfc::Vector6 desired_input{allocator_desired_input_, allocator_desired_input_,
+                                   allocator_desired_input_, allocator_desired_input_, 0, 0};
+    allocator_.setDesiredNormalizedInput(desired_input);
+    allocator_.reset();
+  }
+
+ 
+
+  pid_kp_(0) = static_cast<sfc::Real>(config.pid_kp_1);
+  pid_kp_(1) = static_cast<sfc::Real>(config.pid_kp_2);
+  pid_kp_(2) = static_cast<sfc::Real>(config.pid_kp_3);
+  pid_kp_(3) = static_cast<sfc::Real>(config.pid_kp_4);
+  pid_kp_(4) = static_cast<sfc::Real>(config.pid_kp_5);
+  pid_kp_(5) = static_cast<sfc::Real>(config.pid_kp_6);
+
+  pid_ki_(0) = static_cast<sfc::Real>(config.pid_ki_1);
+  pid_ki_(1) = static_cast<sfc::Real>(config.pid_ki_2);
+  pid_ki_(2) = static_cast<sfc::Real>(config.pid_ki_3);
+  pid_ki_(3) = static_cast<sfc::Real>(config.pid_ki_4);
+  pid_ki_(4) = static_cast<sfc::Real>(config.pid_ki_5);
+  pid_ki_(5) = static_cast<sfc::Real>(config.pid_ki_6);
+
+  pid_kd_(0) = static_cast<sfc::Real>(config.pid_kd_1);
+  pid_kd_(1) = static_cast<sfc::Real>(config.pid_kd_2);
+  pid_kd_(2) = static_cast<sfc::Real>(config.pid_kd_3);
+  pid_kd_(3) = static_cast<sfc::Real>(config.pid_kd_4);
+  pid_kd_(4) = static_cast<sfc::Real>(config.pid_kd_5);
+  pid_kd_(5) = static_cast<sfc::Real>(config.pid_kd_6);
+
+  pid_.setGains(pid_kp_, pid_ki_, pid_kd_);
+
+  enable_thruster_command_ = config.enable_thruster_command;
+  enable_arm_command_      = config.enable_arm_command;
+}
+
 GironaController::GironaController(ros::NodeHandle nh, ros::NodeHandle pnh)
     : nh_(std::move(nh)),
       pnh_(std::move(pnh)),
@@ -98,8 +155,8 @@ void GironaController::controlThread() {
         const sfc::Real damping = static_cast<sfc::Real>(1e-3);
         
         // Task: Vehicle position
-        const sfc::Vector<3> xyz_ref{0.0,0.0,2.0};
-        const sfc::Vector<3> xyz_gain{2,2,1};
+        const sfc::Vector<3> xyz_ref  = xyz_ref_;
+        const sfc::Vector<3> xyz_gain{2, 2, 1};
         sfc::Matrix<3, kSysDof> J_xyz{};
         sfc::Vector<3> sigma_xyz{};
         sfc::Vector<3> task_vel_xyz{};
@@ -117,8 +174,8 @@ void GironaController::controlThread() {
         // sfc::buildRollPitchTask(uvms_, rp_ref, J_rp, sigma_rp);
         // zeta = sfc::taskPrioritySolveStep<kSysDof, 2>(sigma_rp, J_rp, N, zeta, damping);
         // Task 1.5: roll/pitch/yaw stabilization
-        const sfc::Vector<3> rpy_ref{0.0,desired_pitch,0.5};
-        const sfc::Vector<3> rpy_gain{0.0,1.0,2.0};
+        const sfc::Vector<3> rpy_ref{0.0, desired_pitch, static_cast<sfc::Real>(ref_yaw_)};
+        const sfc::Vector<3> rpy_gain = gain_rpy_;
         sfc::Matrix<3, kSysDof> J_rpy{};
         sfc::Vector<3> sigma_rpy{};
         sfc::Vector<3> task_vel_rpy{};
@@ -132,7 +189,7 @@ void GironaController::controlThread() {
 
         // Task 3: nominal joint configuration
         const sfc::Vector<6> nominal_config = desired_joint_position;
-        const sfc::Vector<6> nominal_gain{1,1,1,1,1,1};
+        const sfc::Vector<6> nominal_gain{gain_nc_,gain_nc_,gain_nc_,gain_nc_,gain_nc_,gain_nc_};
         sfc::Matrix<6, kSysDof> J_nominal{};
         sfc::Vector<6> sigma_nominal{};
         sfc::Vector<6> task_vel_nominal{};
@@ -150,7 +207,9 @@ void GironaController::controlThread() {
             && (ros::Time::now().toSec()-reset_time.toSec()) > 30 // big than 30 seconds
           ){
             stable_count++;
+            // std::cout << stable_count;
             if (stable_count >50){ //10hz
+              std::cout << std::endl;
               stable_count=0;
               std::cout << " vehicle velocity norm " << sfc::vectorNorm(uvms_.vehicleVelocity()) 
               << " joint pos err norm " 
@@ -205,15 +264,17 @@ void GironaController::controlThread() {
           sfc::print(control_wrench,std::cout,"control wrench");
           sfc::print(setpoints,std::cout,"setpoints");
         #endif
-        joint_velocities(0) = zeta(6);
-        joint_velocities(1) = zeta(7);
-        joint_velocities(2) = zeta(8);
-        joint_velocities(3) = zeta(9);
-        joint_velocities(4) = zeta(10);
-        joint_velocities(5) = zeta(11);
+        const sfc::Real dq_lim = dq_lim_;
+        for (int i = 0; i < 6; ++i) {
+          sfc::Real v = zeta(6 + i);
+          joint_velocities(i) = v >  dq_lim ?  dq_lim :
+                                 v < -dq_lim ? -dq_lim : v;
+        }
 
-        interface_.sendThrusterSetpoints(setpoints);
-        interface_.sendJointVelocityCommand(joint_velocities);
+        if (enable_thruster_command_) { interface_.sendThrusterSetpoints(setpoints); }else{
+          pid_.reset();
+        }
+        if (enable_arm_command_)      { interface_.sendJointVelocityCommand(joint_velocities); }
         rate.sleep();
       }
 
@@ -334,6 +395,11 @@ void GironaController::initializeController() {
     ROS_INFO("CSV log path: %s", csv_path.c_str());
   }
 
+  // Dynamic reconfigure server
+  dynamic_reconfigure::Server<sensorless_force_control::ControllerCollectDataConfig>::CallbackType cb;
+  cb = boost::bind(&GironaController::reconfigCb, this, _1, _2);
+  reconfig_server_.setCallback(cb);
+  ROS_INFO("Dynamic reconfigure server started.");
 }
 
 void GironaController::logFrame(double stamp_sec,

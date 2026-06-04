@@ -18,11 +18,14 @@
 #include "functionlib/pid/pid.h"
 #include "thruster_error_define.h"
 
+#include <mutex>
 #include <cmath>
 #include "exp_thruster_model.h"
 #include "exp_utilts.h"
 #include "src/thruster_allocator_qpoases.h"
 
+#include <dynamic_reconfigure/server.h>
+#include <sensorless_force_control/ControllerCollectDataConfig.h>
 
 #define QP_ALLOCATOR
 // #define LS_ALLOCATOR
@@ -47,6 +50,7 @@ class GironaController {
   void interfaceThread();
   void controlThread();
   void initializeController();
+  void reconfigCb(sensorless_force_control::ControllerCollectDataConfig& config, uint32_t level);
   void logFrame(double stamp_sec,
                 const sfc::Vector3& vehicle_xyz,
                 const sfc::Vector3& vehicle_rpy,
@@ -78,6 +82,24 @@ class GironaController {
   std::size_t n_thrusters_{6};
   sfc::Logger logger_{""};
   bool logger_open_{false};
+
+  // Dynamic reconfigure
+  std::mutex                                                                    cfg_mutex_;
+  dynamic_reconfigure::Server<sensorless_force_control::ControllerCollectDataConfig> reconfig_server_;
+
+  // Tunable parameters (protected by cfg_mutex_)
+  sfc::Vector3 xyz_ref_{0.0, 0.0, 2.0};
+  sfc::Real    desired_pitch_{0.0};
+  sfc::Real    ref_yaw_{0.5};
+  sfc::Vector3 gain_rpy_{0.0, 1.0, 2.0};
+  sfc::Real    gain_nc_{0.1};
+  sfc::Real    dq_lim_{0.3};
+  sfc::Real    allocator_desired_input_{0.55};
+  sfc::Vector6 pid_kp_{50.0, 50.0, 50.0,  0.0, 50.0, 20.0};
+  sfc::Vector6 pid_ki_{ 1.0,  1.0,  5.0,  0.0, 10.0,  1.0};
+  sfc::Vector6 pid_kd_{ 8.0,  8.0,  8.0,  0.0,  4.0,  4.0};
+  bool         enable_thruster_command_{false};
+  bool         enable_arm_command_{false};
 };
 
 }  // namespace sfc

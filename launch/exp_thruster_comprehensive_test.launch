@@ -1,0 +1,15 @@
+<launch>
+  <arg name="robot_name"             default="girona1000" />
+  <arg name="thruster_topic"         default="controller/passthrough_thruster_setpoints" />
+  <arg name="tcm_yaml"               default="$(find sensorless_force_control)/config/control/tcm_with_thruster_torque.yaml" />
+
+  <group ns="$(arg robot_name)">
+    <node pkg="sensorless_force_control"
+          type="thruster_test.py"
+          name="thruster_test"
+          output="screen">
+      <param name="thruster_topic" value="$(arg thruster_topic)" />
+      <param name="tcm_yaml"       value="$(arg tcm_yaml)" />
+    </node>
+  </group>
+</launch>

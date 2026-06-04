@@ -209,9 +209,13 @@ void GironaController::admittanceReconfigCb(sensorless_force_control::Admittance
 
   {
     std::lock_guard<std::mutex> lock(kin_config_mutex_);
-    jointlimit_rho_ = static_cast<sfc::Real>(config.jointlimit_rho);
-    jointlimit_ds_ = static_cast<sfc::Real>(config.jointlimit_ds);
+    jointlimit_rho_  = static_cast<sfc::Real>(config.jointlimit_rho);
+    jointlimit_ds_   = static_cast<sfc::Real>(config.jointlimit_ds);
     jointlimit_gain_ = static_cast<sfc::Real>(config.jointlimit_gain);
+    desired_depth_   = static_cast<sfc::Real>(config.desired_depth);
+    v1_lim_          = static_cast<sfc::Real>(config.v1_lim);
+    v2_lim_          = static_cast<sfc::Real>(config.v2_lim);
+    dq_lim_          = static_cast<sfc::Real>(config.dq_lim);
 
     ref_rpy_(0) = static_cast<sfc::Real>(config.ref_rpy_1);
     ref_rpy_(1) = static_cast<sfc::Real>(config.ref_rpy_2);
@@ -430,7 +434,8 @@ void GironaController::controlThread() {
             sfc::print(x_ee_d,std::cout,"x_ee_d");
             sfc::print(q_ee_d,std::cout,"q_ee_d");
         #endif
-        geometry_msgs::TransformStamped t1;
+
+        {geometry_msgs::TransformStamped t1;
         t1.header.stamp = ros::Time::now();
         t1.header.frame_id = "world_ned";   // 你的世界系
         t1.child_frame_id = "ee_d";         // 你想看的目标系
@@ -477,7 +482,7 @@ void GironaController::controlThread() {
         t3.transform.rotation.x = q_cam_in_B.x;
         t3.transform.rotation.y = q_cam_in_B.y;
         t3.transform.rotation.z = q_cam_in_B.z;
-        tf_broadcaster_d_.sendTransform(t3);
+        tf_broadcaster_d_.sendTransform(t3);}
         
         
         
@@ -627,10 +632,10 @@ void GironaController::controlThread() {
           //task: Joint Limits
           const sfc::Vector<6> q_min{-1.5*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
           const sfc::Vector<6> q_max{ 1.5*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,      3.5*sfc::kPi4};
-          const sfc::Vector<6> dq_min{-0.30, -0.30, -0.30, -0.30, -0.30, -0.30};
-          const sfc::Vector<6> dq_max{0.30, 0.30, 0.30, 0.30, 0.30, 0.30};
-          const sfc::Vector<6> nu_min{-0.10,-0.10,-0.10,-0.10,-0.10,-0.10};
-          const sfc::Vector<6> nu_max{0.10,0.10,0.10,0.10,0.10,0.10};
+          const sfc::Vector<6> dq_min{-dq_lim_,-dq_lim_,-dq_lim_,-dq_lim_,-dq_lim_,-dq_lim_};
+          const sfc::Vector<6> dq_max{ dq_lim_, dq_lim_, dq_lim_, dq_lim_, dq_lim_, dq_lim_};
+          const sfc::Vector<6> nu_min{-v1_lim_,-v1_lim_,-v1_lim_,-v2_lim_,-v2_lim_,-v2_lim_};
+          const sfc::Vector<6> nu_max{ v1_lim_, v1_lim_, v1_lim_, v2_lim_, v2_lim_, v2_lim_};
           // ── Task weight vectors (Kq: joint, Kw: slack) ──────────────────
           sfc::Vector<12> jl_Kq  = sfc::Vector<12>{1,1,1,1,1,1, 1,1,1,1,1,1};
           sfc::Vector<12> jl_Kw  = sfc::Vector<12>{1,1,1,1,1,1,1,1,1,1,1,1} * kw_jl_;
@@ -1047,6 +1052,57 @@ void GironaController::controlThread() {
             }
           #endif
         #endif
+        
+        #ifdef USE_HAND
+          sfc::Real       manipulability      = uvms_.manipulatorManipulability();
+
+          // Task: Vehicle position
+          const sfc::Vector<3> xyz_ref{0, 0, desired_depth_};
+          const sfc::Vector<3> xyz_gain{2, 2, 1};
+          sfc::Matrix<3, kSysDof> J_xyz{};
+          sfc::Vector<3> sigma_xyz{};
+          sfc::Vector<3> task_vel_xyz{};
+          sfc::buildVehiclePositionTask(uvms_, xyz_ref, J_xyz, sigma_xyz);
+          sfc::buildTaskVelocity<3>(sfc::Vector3{},sigma_xyz,xyz_gain,task_vel_xyz);
+          zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(task_vel_xyz, J_xyz, N, zeta, damping);
+          #ifdef DEBUG_CONTROLLER
+            sfc::print(sigma_xyz,std::cout,"sigma_xyz");
+            sfc::print(zeta,std::cout,"zeta");
+          #endif
+
+          // Task 1.5: roll/pitch/yaw stabilization
+          sfc::Matrix<3, kSysDof> J_rpy{};
+          sfc::Vector<3> sigma_rpy{};
+          sfc::Vector<3> task_vel_rpy{};
+          sfc::buildRollPitchYawTask(uvms_, ref_rpy, J_rpy, sigma_rpy);
+          sfc::buildTaskVelocity<3>(sfc::Vector3{},sigma_rpy,gain_rpy_,task_vel_rpy);
+          zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(task_vel_rpy, J_rpy, N, zeta, damping);
+          #ifdef DEBUG_CONTROLLER
+            sfc::print(sigma_rpy,std::cout,"sigma_rpy");
+            sfc::print(zeta,std::cout,"zeta");
+          #endif
+
+          // Task 3: nominal joint configuration
+          const sfc::Vector<6> nominal_gain{1.0,1.0,1.0,1.0,1.0,1.0};
+          sfc::Matrix<6, kSysDof> J_nominal{};
+          sfc::Vector<6> sigma_nominal{};
+          sfc::Vector<6> task_vel_nominal{};
+          sfc::buildNominalConfigTask(uvms_, nominal_config_, J_nominal, sigma_nominal);
+          sfc::buildTaskVelocity<6>(sfc::Vector6{},sigma_nominal,nominal_gain,task_vel_nominal);
+          zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_nominal, J_nominal, N, zeta, damping);
+
+
+          const sfc::Vector<kSysDof> zeta_abs_limit{
+            0.2, 0.2, 0.2, 0.2, 0.2, 0.2,  // vehicle velocity limits
+            0.30, 0.30, 0.30, 0.30, 0.30, 0.30   // joint velocity limits
+          };
+          sfc::Vector<kSysDof> zeta_sat = sfc::clampSymmetric<kSysDof>(zeta, zeta_abs_limit);
+          zeta_sat(0) = v_ee_d(0);
+          zeta_sat(1) = v_ee_d(1);
+          sfc::print(zeta_sat,std::cout,"zeta_sat");
+        #endif
+
+
         // record the time consumption of one task
         const double kin_ctrl_time_us = std::chrono::duration<double, std::micro>(
               std::chrono::steady_clock::now() - t_ctrl_start).count();
@@ -1073,7 +1129,7 @@ void GironaController::controlThread() {
             // sfc::Vector6 pid_err{};
             // pid_err(0) = nu_error(0);
             // pid_err(0) = nu_error(1);
-            control_wrench = pid_.update(nu_error,dt)+gravity;
+            control_wrench = pid_.update(nu_error,dt);
           #endif
           #ifdef STSMC
             // control_wrench = stsmc_.update(nu_error,Vector6{},gravity,dt);

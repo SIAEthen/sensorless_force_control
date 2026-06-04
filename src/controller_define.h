@@ -10,9 +10,10 @@
 #define USE_ADMITTANCE // enable admittance, default is fixed gain admittance controller
 // #define USE_VARIABLE_ADMITTANCE
 // #define USE_IROS_FORCE
+
 // choose one dynamic controller to define
-#define STSMC
-// #define PID
+// #define STSMC
+#define PID
 
 // #define S1
 // #define S2
@@ -39,7 +40,8 @@
 
 
 // #define USE_TPC
-#define USE_HQP
+// #define USE_HQP
+#define USE_HAND // use joystick to control the vehicle  x y z  rz velocity
 
 //HQP has several methods, for example, 
 // from joejoe, this is the best hqp, it didnt consider the activate and deactivate tasks
@@ -53,3 +55,5 @@
   // #define USE_HQP_Korean
   // #define USE_HQP_CONTINUOUS_BETA
 #endif
+
+

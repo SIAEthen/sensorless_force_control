@@ -24,6 +24,8 @@ find_package(catkin REQUIRED
 
 generate_dynamic_reconfigure_options(
   cfg/Admittance.cfg
+  cfg/ThrusterTest.cfg
+  cfg/ControllerCollectData.cfg
 )
 
 add_service_files(

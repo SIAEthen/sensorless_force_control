@@ -1,0 +1,12 @@
+<launch>
+
+
+
+    <!-- my watch dog -->
+    <include file="$(find sensorless_force_control)/launch/joint_cmd_watchdog.launch.xh" />
+
+    <!-- Joy stick bridge, this is my owne joystick-->
+    <include file="$(find sensorless_force_control)/launch/joystick_bridge.launch" />
+
+
+</launch>
