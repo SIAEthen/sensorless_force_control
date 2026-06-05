@@ -22,10 +22,22 @@ def generate_configurations(n: int, seed: int = 10):
     return configs
 
 
+def save_configurations(configs, filepath: str):
+    with open(filepath, "w") as f:
+        for q in configs:
+            f.write(" ".join(f"{v:.4f}" for v in q) + "\n")
+    print(f"Saved {len(configs)} configurations to {filepath}")
+
+
 if __name__ == "__main__":
+    import os
     N = 50
     configs = generate_configurations(N)
+
     print(f"{'#':>3}  {'q1':>8}  {'q2':>8}  {'q3':>8}  {'q4':>8}  {'q5':>8}  {'q6':>8}  (deg)")
     print("-" * 70)
     for i, q in enumerate(configs):
         print(f"{i+1:>3}  {q[0]:>8.2f}  {q[1]:>8.2f}  {q[2]:>8.2f}  {q[3]:>8.2f}  {q[4]:>8.2f}  {q[5]:>8.2f}")
+
+    out_path = os.path.join(os.path.dirname(__file__), "configurations.txt")
+    save_configurations(configs, out_path)

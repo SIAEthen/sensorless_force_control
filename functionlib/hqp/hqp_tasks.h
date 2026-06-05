@@ -683,7 +683,7 @@ inline HQPCascadedTask makeVehicleVisionTask(
     h_u(2) = (d_v + dd - Z);      // (d+Δd − Z)
     h_l(0) = xc + Z * tan_h;
     h_l(1) = yc + Z * tan_v;
-    h_l(2) = Z + (d_v + dd);
+    h_l(2) = Z - (d_v - dd);
 
     Eigen::VectorXd lb_t(3), ub_t(3);
     lb_t = -lambda * h_l;
@@ -795,7 +795,7 @@ inline VehicleVisionDiagnostics getVehicleVisionDiagnostics(
                                 static_cast<sfc::Real>(d_v + dd - Z)};
     diag.h_l = sfc::Vector<3>{static_cast<sfc::Real>(xc + Z * tan_h),
                                 static_cast<sfc::Real>(yc + Z * tan_v),
-                                static_cast<sfc::Real>(Z + (d_v + dd))};
+                                static_cast<sfc::Real>(Z - (d_v - dd))};
     return diag;
 }
 
