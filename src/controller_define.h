@@ -40,8 +40,8 @@
 
 
 // #define USE_TPC
-// #define USE_HQP
-#define USE_HAND // use joystick to control the vehicle  x y z  rz velocity
+#define USE_HQP
+// #define USE_HAND // use joystick to control the vehicle  x y z  rz velocity
 
 //HQP has several methods, for example, 
 // from joejoe, this is the best hqp, it didnt consider the activate and deactivate tasks

@@ -266,6 +266,7 @@ void GironaController::admittanceReconfigCb(sensorless_force_control::Admittance
     enable_self_collision_task_     = config.enable_self_collision_task;
     enable_manipulability_task_     = config.enable_manipulability_task;
     enable_sigma_rpy_task_          = config.enable_sigma_rpy_task;
+    enable_push_task_               = config.enable_push_task;
     enable_ee_task_                 = config.enable_ee_task;
     enable_nominalconfiguration_task_ = config.enable_nominalconfiguration_task;
     enable_zero_velocity_task_      = config.enable_zero_velocity_task;
@@ -342,7 +343,7 @@ void GironaController::controlThread() {
       sfc::Vector3 x_ee_d{0,0,2.0};      // for free floating moving
     #endif
     #ifdef OBSERVER_TEST
-      sfc::Vector3 x_ee_d{0.0,3.6,2.0};      // for observer test
+      sfc::Vector3 x_ee_d{0.0,0.0,2.0};      // for observer test
     #endif
     // sfc::Quaternion q_ee_d = sfc::Quaternion::fromRPY(-sfc::kPi2,-sfc::kPi2,0.0);
     sfc::Quaternion q_ee_d = sfc::Quaternion{0,0,-0.707,-0.707}; // point the panel
@@ -484,11 +485,8 @@ void GironaController::controlThread() {
         t3.transform.rotation.z = q_cam_in_B.z;
         tf_broadcaster_d_.sendTransform(t3);}
         
-        
-        
-        
-        
-        
+        // 
+         
         constexpr std::size_t kSysDof = 12;
         sfc::Matrix<kSysDof, kSysDof> N = sfc::identity<kSysDof>();
         sfc::Vector<kSysDof> zeta{};
@@ -513,6 +511,7 @@ void GironaController::controlThread() {
         bool enable_nominalconfiguration_task = true;
         bool enable_zero_velocity_task = true;
         bool enable_admittance = false;
+        
         {
           std::lock_guard<std::mutex> lock(kin_config_mutex_);
           jointlimit_rho = jointlimit_rho_;
@@ -1004,6 +1003,9 @@ void GironaController::controlThread() {
             }
             if (enable_sigma_rpy_task) {
               solver.addTask(hqp::makeRollPitchYawTask(uvms_, ref_rpy, gain_rpy, rpy_Kq, rpy_Kw));
+            }
+            if(enable_push_task_){
+              solver.addTask(hqp::makeManipulatorPushTask(uvms_,vv_Kq,vv_Kw));
             }
             if (enable_ee_task) {
               solver.addTask(hqp::makeEeTaskWithVelocity(uvms_, v_ee_d, x_ee_r, q_ee_d,

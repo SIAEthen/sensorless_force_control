@@ -221,6 +221,7 @@ class GironaController {
   bool enable_self_collision_task_{true};
   bool enable_manipulability_task_{true};
   bool enable_sigma_rpy_task_{true};
+  bool enable_push_task_{false};
   bool enable_ee_task_{true};
   bool enable_nominalconfiguration_task_{true};
   bool enable_zero_velocity_task_{true};

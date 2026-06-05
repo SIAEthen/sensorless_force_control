@@ -72,6 +72,14 @@ inline Vector3 cross(const Vector3& a, const Vector3& b) {
   return r;
 }
 
+// Returns the angle [0, π] between two vectors using atan2 for numerical stability.
+inline Real getAngle(const Vector3& a, const Vector3& b) {
+  const Real dot   = a(0)*b(0) + a(1)*b(1) + a(2)*b(2);
+  const Vector3 cp = cross(a, b);
+  const Real sin_t = std::sqrt(cp(0)*cp(0) + cp(1)*cp(1) + cp(2)*cp(2));
+  return std::atan2(sin_t, dot);
+}
+
 template <std::size_t Size>
 inline void printVector(const Vector<Size>& v,
                         std::ostream& os,

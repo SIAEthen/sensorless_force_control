@@ -701,6 +701,36 @@ inline HQPCascadedTask makeVehicleVisionTask(
     return HQPCascadedTask(J_cam, lb, ub, toEigenMatrix(Kq), toEigenMatrix(Kw), std::move(name));
 }
 
+
+
+template <std::size_t ArmDof,
+          typename ManipulatorT = sfc::ManipulatorFromYAML<ArmDof>,
+          typename VehicleT    = sfc::VehicleBase>
+inline HQPCascadedTask makeManipulatorPushTask(
+    const sfc::UvmsSingleArm<ArmDof, ManipulatorT, VehicleT>& uvms,
+    const sfc::Vector<6 + ArmDof>& Kq,
+    const sfc::Vector<3>&          Kw,
+    std::string                    name      = "manipulator_push")
+{
+    // get data from uvms_ api
+    const sfc::Vector3 z_EE_in_B = uvms.forwardKinematicsBodyFrame().rotation() * sfc::Vector3{0,0,1};
+    const sfc::Vector3 rot_axis = sfc::cross(z_EE_in_B,sfc::Vector3{1,0,0});
+    const sfc::Real ang = sfc::getAngle(z_EE_in_B,sfc::Vector3{1,0,0});
+    const sfc::Vector3 omega = rot_axis * ang;
+    const sfc::Matrix<6, 6 + ArmDof> J_ee_B = uvms.jacobianBodyFrame();
+
+    sfc::Matrix<3, 6 + ArmDof> J_task;
+    for(int i=0;i<3;i++){
+        for(int j=0;j<6 + ArmDof;j++){
+            J_task(i,j) = J_ee_B(i+3,j);
+        }
+    }
+    return HQPCascadedTask(toEigen(J_task), toEigen(omega), toEigenMatrix(Kq), toEigenMatrix(Kw), std::move(name));
+}
+
+
+
+
 // ═══════════════════════════════════════════════════════════════════════════
 // DIAGNOSTICS
 // ═══════════════════════════════════════════════════════════════════════════
