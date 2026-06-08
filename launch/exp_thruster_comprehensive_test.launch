@@ -1,6 +1,6 @@
 <launch>
-  <arg name="robot_name"             default="girona1000" />
-  <arg name="thruster_topic"         default="controller/passthrough_thruster_setpoints" />
+  <arg name="robot_name"             default="girona500" />
+  <arg name="thruster_topic"         default="controller/sensorless_force_control/thruster_setpoints" />
   <arg name="tcm_yaml"               default="$(find sensorless_force_control)/config/control/tcm_with_thruster_torque.yaml" />
 
   <group ns="$(arg robot_name)">

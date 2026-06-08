@@ -629,8 +629,8 @@ void GironaController::controlThread() {
 
         #ifdef USE_HQP
           //task: Joint Limits
-          const sfc::Vector<6> q_min{-1.5*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, 0.0};
-          const sfc::Vector<6> q_max{ 1.5*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,      3.5*sfc::kPi4};
+          const sfc::Vector<6> q_min{-2.0*sfc::kPi4,-sfc::kPi2,-sfc::kPi2,-3*sfc::kPi4, -sfc::kPi, -3.5*sfc::kPi4};
+          const sfc::Vector<6> q_max{ 1.5*sfc::kPi4, sfc::kPi2, sfc::kPi2, 3*sfc::kPi4,  0.0,       3.5*sfc::kPi4};
           const sfc::Vector<6> dq_min{-dq_lim_,-dq_lim_,-dq_lim_,-dq_lim_,-dq_lim_,-dq_lim_};
           const sfc::Vector<6> dq_max{ dq_lim_, dq_lim_, dq_lim_, dq_lim_, dq_lim_, dq_lim_};
           const sfc::Vector<6> nu_min{-v1_lim_,-v1_lim_,-v1_lim_,-v2_lim_,-v2_lim_,-v2_lim_};
@@ -1169,7 +1169,13 @@ void GironaController::controlThread() {
         const auto t_tip_inertia = uvms_.forwardKinematics();
         const auto t_ft_inertia = t_tip_inertia * t_ft_tip;
         const sfc::Vector6 sensor_feedback_filtered = wrench_filter_.update(sensor_feedback,dt);
-        const sfc::Vector6 sensor_feedback_calibrated = sensor_feedback_filtered - sfc::Regressor_stupid(t_ft_inertia.rotation()) * wrenchsensor_parameters_;
+        sfc::Vector<4> stupid_params{wrenchsensor_parameters_(0),wrenchsensor_parameters_(1),wrenchsensor_parameters_(2),wrenchsensor_parameters_(3)};
+        
+        sfc::Matrix<6,6> U_contact_wrench = sfc::U_mat(
+          sfc::RotationMatrix::fromRPY(0,0, wrenchsensor_parameters_(4)),
+          sfc::Vector3{0,0,0});
+        const sfc::Vector6 sensor_feedback_calibrated = sensor_feedback_filtered - 
+                    U_contact_wrench * sfc::Regressor_stupid(t_ft_inertia.rotation()) * stupid_params;
         const sfc::Matrix<6,6> U_ft_tip = sfc::U_mat(t_ft_tip.rotation(),t_ft_tip.translation());
         const sfc::Vector6 sensor_feedback_calibrated_ontiplink = U_ft_tip * sensor_feedback_calibrated;
         
@@ -1670,10 +1676,10 @@ void GironaController::initializeController() {
   try {
     YAML::Node root = YAML::LoadFile(wrenchsensor_yaml_path);
     const YAML::Node dyn_node = root["params"];
-    if (!dyn_node || !dyn_node.IsSequence() || dyn_node.size() != 4) {
-      throw std::runtime_error("param must be a sequence of 4 elements");
+    if (!dyn_node || !dyn_node.IsSequence() || dyn_node.size() != 5) {
+      throw std::runtime_error("param must be a sequence of 5 elements");
     }
-    for (std::size_t i = 0; i < 4; ++i) {
+    for (std::size_t i = 0; i < 5; ++i) {
       wrenchsensor_parameters_(i) = static_cast<sfc::Real>(dyn_node[i].as<double>());
     }
     sfc::print(wrenchsensor_parameters_, std::cout, "wrenchsensor_parameters_");
@@ -1782,7 +1788,7 @@ void GironaController::desiredWrenchCallback(const geometry_msgs::WrenchStamped:
 int main(int argc, char** argv) {
   ros::init(argc, argv, "girona_controller");
   ros::NodeHandle pnh("~");
-  const std::string robot_name = pnh.param<std::string>("robot_name", "girona1000");
+  const std::string robot_name = pnh.param<std::string>("robot_name", "girona500");
   ros::NodeHandle nh("/" + robot_name);
   sfc::GironaController controller(nh, pnh);
   controller.start();

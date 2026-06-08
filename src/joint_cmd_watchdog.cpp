@@ -10,7 +10,7 @@ class JointCmdWatchdog {
       : nh_(std::move(nh)), pnh_(std::move(pnh)) {
     input_topic_ = pnh_.param<std::string>("input_topic", "controller/joint_velocity_cmd");
     output_topic_ =
-        pnh_.param<std::string>("output_topic", "bravo/joint_velocity_controller/command");
+        pnh_.param<std::string>("output_topic", "bravo_right/joint_velocity_controller/command");
     timeout_sec_ = pnh_.param<double>("timeout_sec", 0.2);
     publish_rate_hz_ = pnh_.param<double>("publish_rate_hz", 50.0);
     dof_ = static_cast<std::size_t>(pnh_.param<int>("dof", 6));
@@ -71,7 +71,7 @@ class JointCmdWatchdog {
 int main(int argc, char** argv) {
   ros::init(argc, argv, "joint_cmd_watchdog");
   ros::NodeHandle pnh("~");
-  const std::string robot_name = pnh.param<std::string>("robot_name", "girona1000");
+  const std::string robot_name = pnh.param<std::string>("robot_name", "girona500");
   ros::NodeHandle nh("/" + robot_name);
 
   JointCmdWatchdog watchdog(nh, pnh);

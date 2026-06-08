@@ -11,15 +11,15 @@ constexpr std::size_t GironaInterface::kArmDof;
 
 GironaInterface::GironaInterface(ros::NodeHandle nh, ros::NodeHandle pnh)
     : nh_(std::move(nh)), pnh_(std::move(pnh)) {
-  odom_topic_ = pnh_.param<std::string>("odom_topic", "dynamics/odometry");
-  joint_state_topic_ = pnh_.param<std::string>("joint_state_topic", "joint_states");
+  odom_topic_ = pnh_.param<std::string>("odom_topic", "navigator/odometry");
+  joint_state_topic_ = pnh_.param<std::string>("joint_state_topic", "bravo_right/joint_states");
   thruster_setpoints_topic_ =
       pnh_.param<std::string>("thruster_setpoints_topic",
                               "controller/passthrough_thruster_setpoints");
   joint_velocity_topic_ =
       pnh_.param<std::string>("joint_velocity_topic",
                               "controller/joint_velocity_cmd");
-  wrench_topic_ = pnh_.param<std::string>("wrench_topic", "ft_sensor/force_torque");
+  wrench_topic_ = pnh_.param<std::string>("wrench_topic", "bravo_right/ft_sensor/wrench");
 
   odom_sub_ = nh_.subscribe(odom_topic_, 10, &GironaInterface::odomCallback, this);
   joint_sub_ = nh_.subscribe(joint_state_topic_, 10, &GironaInterface::jointCallback, this);

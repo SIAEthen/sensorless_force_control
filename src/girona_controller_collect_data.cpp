@@ -188,7 +188,8 @@ void GironaController::controlThread() {
         #endif
 
         // Task 3: nominal joint configuration
-        const sfc::Vector<6> nominal_config = desired_joint_position;
+        // const sfc::Vector<6> nominal_config = desired_joint_position;
+        const sfc::Vector<6> nominal_config{0,0,0,0,0,0};
         const sfc::Vector<6> nominal_gain{gain_nc_,gain_nc_,gain_nc_,gain_nc_,gain_nc_,gain_nc_};
         sfc::Matrix<6, kSysDof> J_nominal{};
         sfc::Vector<6> sigma_nominal{};
@@ -270,6 +271,11 @@ void GironaController::controlThread() {
           joint_velocities(i) = v >  dq_lim ?  dq_lim :
                                  v < -dq_lim ? -dq_lim : v;
         }
+        // joint_velocities(0) = 0.0;
+        // joint_velocities(1) = 0.0;
+        // joint_velocities(2) = 0.0;
+        // joint_velocities(3) = 0.0;
+        // joint_velocities(4) = 0.0;
 
         if (enable_thruster_command_) { interface_.sendThrusterSetpoints(setpoints); }else{
           pid_.reset();
@@ -304,8 +310,8 @@ void GironaController::initializeController() {
   // read from rosrun tf tf_echo girona1000/base_link girona1000/bravo/base_link no, this is wrong. we should use the origin link
   // rosrun tf tf_echo girona1000/base_link girona1000/bravo/base_link
   // rostopic echo /girona1000/dynamics/odometry
-  sfc::RotationMatrix r = sfc::RotationMatrix::fromRPY(3.142, 0.000, -0.175);
-  sfc::Vector3 t = sfc::Vector3{0.732, -0.138, 0.271}; //from bravo/base_link to girona1000/base_link
+  sfc::RotationMatrix r = sfc::RotationMatrix::fromRPY(-3.117, -0.001, 0.189);
+  sfc::Vector3 t = sfc::Vector3{0.739, 0.133, 0.358}; //from bravo/base_link to girona1000/base_link
   // sfc::Vector3 t = sfc::Vector3{0.732, -0.138, 0.485};    //from bravo/base_link to girona1000/origin
   sfc::HomogeneousMatrix t_0_b = sfc::HomogeneousMatrix::fromRotationTranslation(r, t);
   uvms_.setManipulatorBaseToVehicleTransform(t_0_b);
@@ -435,7 +441,7 @@ void GironaController::logFrame(double stamp_sec,
 int main(int argc, char** argv) {
   ros::init(argc, argv, "girona_controller");
   ros::NodeHandle pnh("~");
-  const std::string robot_name = pnh.param<std::string>("robot_name", "girona1000");
+  const std::string robot_name = pnh.param<std::string>("robot_name", "girona500");
   ros::NodeHandle nh("/" + robot_name);
   sfc::GironaController controller(nh, pnh);
   controller.start();

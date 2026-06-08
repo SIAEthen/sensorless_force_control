@@ -18,3 +18,6 @@ return pos and rotation of FrameB expressed in FrameA
 ## view frames 
 `rosrun tf view_frames`
 this will generate a frames.pdf
+
+## experiment
+rosrun tf tf_echo girona500/base_link girona500/bravo_right/base_link

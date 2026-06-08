@@ -67,7 +67,9 @@ class ThrusterTestNode:
         tcm_path = rospy.get_param("~tcm_yaml", self._TCM_DEFAULT)
         try:
             tcm = load_tcm(tcm_path)
-            self._tcm_inv = np.linalg.pinv(tcm + 0.0001*np.eye(6))   # 6×6 pseudo-inverse
+            _lam = 0.05
+            _U, _s, _Vt = np.linalg.svd(tcm)
+            self._tcm_inv = _Vt.T @ np.diag(_s / (_s**2 + _lam**2)) @ _U.T
             rospy.loginfo(f"[thruster_test] TCM loaded from {tcm_path}")
         except Exception as e:
             rospy.logwarn(f"[thruster_test] Could not load TCM: {e}. use_tcm will have no effect.")
