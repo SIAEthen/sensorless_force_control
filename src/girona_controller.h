@@ -99,7 +99,7 @@ class GironaController {
   sfc::AccelerationObserver<3> linear_acc_observer_;
   sfc::Vector<28> dynamic_parameters_;
   sfc::Vector6 dynamic_offset_;
-  sfc::Vector<5> wrenchsensor_parameters_;
+  sfc::Vector<11> wrenchsensor_parameters_;
   sfc::FirstOrderLowPassFilter<6> wrench_filter_;
   
   #ifdef USE_ADMITTANCE

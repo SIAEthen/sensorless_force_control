@@ -52,8 +52,8 @@ inline void velcmd2configurations(const sfc::Vector6& vel_cmd,
 // we need to detect if they are any collisions
 inline sfc::Vector<6> getRandomJointPosition(){
   sfc::Vector<6> joint_position{};
-  sfc::Vector<6> min{-2.5*sfc::kPi4,      0.0,      0.0,  -2*sfc::kPi4, -sfc::kPi2,            0.0};
-  sfc::Vector<6> max{2.5*sfc::kPi4, sfc::kPi2,sfc::kPi2,   2*sfc::kPi4,        0.0,   3.5*sfc::kPi4};
+  sfc::Vector<6> min{-1.5*sfc::kPi4, -35.0/180.0*3.14, -35.0/180.0*3.14,  -45.0/180.0*3.14, -1, -sfc::kPi2}; 
+  sfc::Vector<6> max{ 1.5*sfc::kPi4,  35.0/180.0*3.14,  35.0/180.0*3.14,   45.0/180.0*3.14,  1,  sfc::kPi2};
   bool collision = true;
   while(collision){
     // 1 sample
@@ -61,12 +61,15 @@ inline sfc::Vector<6> getRandomJointPosition(){
       double r = static_cast<double>(rand()%100)/100.0;
       joint_position(i) = r*(max(i)-min(i)) + min(i);
     }
+    double r = static_cast<double>(rand()%100)/100.0;
+    joint_position(4) = joint_position(1) + joint_position(2) - 1.57 + 0.2*r;
     // 2 judge if collision
     collision = false; //never collision
   }
-  
+
   return joint_position;
 }
+
 inline sfc::Real getRandomAngle(sfc::Real min,sfc::Real max){
   sfc::Real angle;
   sfc::Real r = static_cast<sfc::Real>(rand()%100)/100.0;

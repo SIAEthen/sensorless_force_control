@@ -15,7 +15,7 @@ GironaInterface::GironaInterface(ros::NodeHandle nh, ros::NodeHandle pnh)
   joint_state_topic_ = pnh_.param<std::string>("joint_state_topic", "bravo_right/joint_states");
   thruster_setpoints_topic_ =
       pnh_.param<std::string>("thruster_setpoints_topic",
-                              "controller/passthrough_thruster_setpoints");
+                              "controller/sensorless_force_control/thruster_setpoints");
   joint_velocity_topic_ =
       pnh_.param<std::string>("joint_velocity_topic",
                               "controller/joint_velocity_cmd");

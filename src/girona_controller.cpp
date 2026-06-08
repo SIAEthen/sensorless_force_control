@@ -1170,7 +1170,10 @@ void GironaController::controlThread() {
         const auto t_ft_inertia = t_tip_inertia * t_ft_tip;
         const sfc::Vector6 sensor_feedback_filtered = wrench_filter_.update(sensor_feedback,dt);
         sfc::Vector<4> stupid_params{wrenchsensor_parameters_(0),wrenchsensor_parameters_(1),wrenchsensor_parameters_(2),wrenchsensor_parameters_(3)};
-        
+        sfc::Vector6 wrench_offset_params{};
+        for(int indx=0;indx<6;indx++){
+          wrench_offset_params(indx) = wrenchsensor_parameters_(indx+5);
+        }
         sfc::Matrix<6,6> U_contact_wrench = sfc::U_mat(
           sfc::RotationMatrix::fromRPY(0,0, wrenchsensor_parameters_(4)),
           sfc::Vector3{0,0,0});
@@ -1542,9 +1545,8 @@ void GironaController::initializeController() {
   // read from rosrun tf tf_echo girona1000/base_link girona1000/bravo/base_link no, this is wrong. we should use the origin link
   // rosrun tf tf_echo girona1000/base_link girona1000/bravo/base_link
   // rostopic echo /girona1000/dynamics/odometry
-  sfc::RotationMatrix r = sfc::RotationMatrix::fromRPY(3.142, 0.000, -0.175);
-  // sfc::Vector3 t = sfc::Vector3{0.732, -0.138, 0.271}; //from bravo/base_link to girona1000/base_link
-  sfc::Vector3 t = sfc::Vector3{0.732, -0.138, 0.485};    //from bravo/base_link to girona1000/origin
+  sfc::RotationMatrix r = sfc::RotationMatrix::fromRPY(-3.117, -0.001, 0.189);
+  sfc::Vector3 t = sfc::Vector3{0.739, 0.133, 0.358}; 
   sfc::HomogeneousMatrix t_0_b = sfc::HomogeneousMatrix::fromRotationTranslation(r, t);
   uvms_.setManipulatorBaseToVehicleTransform(t_0_b);
   uvms_.setManipulator(manip);
@@ -1676,8 +1678,8 @@ void GironaController::initializeController() {
   try {
     YAML::Node root = YAML::LoadFile(wrenchsensor_yaml_path);
     const YAML::Node dyn_node = root["params"];
-    if (!dyn_node || !dyn_node.IsSequence() || dyn_node.size() != 5) {
-      throw std::runtime_error("param must be a sequence of 5 elements");
+    if (!dyn_node || !dyn_node.IsSequence() || dyn_node.size() != 11) {
+      throw std::runtime_error("param must be a sequence of 11 elements");
     }
     for (std::size_t i = 0; i < 5; ++i) {
       wrenchsensor_parameters_(i) = static_cast<sfc::Real>(dyn_node[i].as<double>());
