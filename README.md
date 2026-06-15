@@ -1,3 +1,35 @@
+# branch exp introduction
+## files description
+cfg -> ROS params dynamic configuration files
+config/control -> robot kinematic model and calibrated parameters, i.e, gravity, wrench sensor
+functionlib -> code of kinematics and dynamics calculation of a UVMS
+src/girona_control.cpp -> source file of all the algorithms
+src/controller_define.h -> header file that defines which algorithms in girona_controller.cpp to be used.
+sc -> girona_controller_collect_data.cpp -> collect data for gravity and wrench sensor calibration.
+
+## experiments description
+Files in scripts whose name has a prefix of "girona_" are experimetns scripts.
+### Observer test
+girona_observer_test_push_hand_control_20N  -> pub a triangular force trajectory with a maximum value of 20 N while controlling the ee pushing the panel
+girona_observer_test_push_hand_control_40N  -> pub a triangular force trajectory with a maximum value of 40 N while controlling the ee pushing the panel
+girona_observer_test_free_floating_move_joints -> control the robot with 0 zelocity, moving the joints
+girona_observer_test_free_floating_move_depth -> control the robot depth, see the effect of water pressure to wrench sensor force measurements along z axis.
+### force control test
+girona_force_control_sin_tra -> tracking a sinosoidal force trajectory along z axis with Patryk 2018 IROS
+girona_force_control_sliding_rect -> tracking a constant force while ee sliding on the panel with a rectangular trajectory
+girona_force_control_sliding_cirl -> tracking a constant force while ee sliding on the panel with a circle trajectory
+### admittance control test
+girona_admittance_control_sliding_cirl -> admittance control, ee tip sliding on the panel following a circle trajectory
+girona_admittance_control_sliding_rect -> same experiment with a rectangular trajectory
+### HQP test
+girona_hqp_continuous_secnario1 -> deactivate and activate ee configuration task
+girona_hqp_continuous_secnario2_circle -> ee tracking of a circle trajectory
+
+
+
+
+
+
 # Girona1000 w/ Bravo Simulation #
 
 This package contains a simulation setup for the Girona1000 w/ Bravo.
