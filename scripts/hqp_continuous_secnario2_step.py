@@ -16,6 +16,8 @@ Usage:
     rosrun sensorless_force_control hqp_continuous_secnario2_step.py
 """
 
+import numpy as np
+import matplotlib.pyplot as plt
 import rospy
 from geometry_msgs.msg import PoseStamped
 from dynamic_reconfigure.client import Client as DynClient
@@ -41,6 +43,40 @@ PUBLISH_RATE_HZ = 10.0
 TOPIC           = "/girona1000xh/ee_pose_cmd"
 
 
+WARMUP_S = 30.0 + 5.0   # rospy.sleep(30) + rospy.sleep(5) before the step
+
+
+def plot_trajectory():
+    dt        = 1.0 / PUBLISH_RATE_HZ
+    t_step    = WARMUP_S
+    t_end     = WARMUP_S + HOLD_DURATION_S
+    t         = np.arange(0, t_end, dt)
+
+    init  = np.array([INT_X,  INT_Y,  INT_Z])
+    step  = np.array([STEP_X, STEP_Y, STEP_Z])
+    cmds  = np.where(t[:, None] < t_step, init, step)   # (N, 3)
+
+    labels = ["x [m]", "y [m]", "z [m]"]
+    colors = ["tab:blue", "tab:orange", "tab:green"]
+
+    _, axes = plt.subplots(3, 1, figsize=(10, 6), sharex=True)
+    plt.suptitle(
+        f"Step trajectory preview\n"
+        f"init=({INT_X}, {INT_Y}, {INT_Z})  →  step=({STEP_X}, {STEP_Y}, {STEP_Z})",
+        fontsize=11
+    )
+    for ax, col, label, color in zip(axes, range(3), labels, colors):
+        ax.plot(t, cmds[:, col], color=color, linewidth=1.5)
+        ax.axvline(t_step, color="gray", linestyle="--", linewidth=1,
+                   label="step trigger" if col == 0 else None)
+        ax.set_ylabel(label)
+        ax.grid(True, linestyle="--", alpha=0.5)
+    axes[0].legend(fontsize=8)
+    axes[-1].set_xlabel("Time [s]")
+    plt.tight_layout()
+    plt.show()
+
+
 def make_pose_msg(x, y, z, qw, qx, qy, qz) -> PoseStamped:
     msg = PoseStamped()
     msg.header.frame_id    = "world"
@@ -55,6 +91,8 @@ def make_pose_msg(x, y, z, qw, qx, qy, qz) -> PoseStamped:
 
 
 def run():
+    plot_trajectory()   # must be before rospy.init_node() to avoid Tkinter crash
+
     rospy.init_node("hqp_step_response", anonymous=False)
     rospy.loginfo("Waiting for subscriber...")
     rospy.sleep(1.0)

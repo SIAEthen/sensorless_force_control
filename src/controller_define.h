@@ -12,8 +12,8 @@
 // #define USE_IROS_FORCE
 
 // choose one dynamic controller to define
-// #define STSMC
-#define PID
+#define STSMC
+// #define PID
 
 // #define S1
 // #define S2
@@ -21,11 +21,12 @@
 #define OBSERVER_TEST
 
 //qp allocator damping 
-#define QP_ALLOCATOR_055
+// #define QP_ALLOCATOR_055
 // #define QP_ALLOCATOR_040
 // #define QP_ALLOCATOR_030
 // #define QP_ALLOCATOR_020
 // #define QP_ALLOCATOR_010
+#define QP_ALLOCATOR_005
 // #define QP_ALLOCATOR_000
 
 #ifdef USE_ADMITTANCE
@@ -50,10 +51,10 @@
 // from korean guys but never deactivate the tasks. it will always compute the next nominal task, high compute cost
 
 #ifdef USE_HQP
-  #define USE_HQP_JOJO
+  // #define USE_HQP_JOJO
   // #define USE_HQP_CONTINUOUS
-  // #define USE_HQP_Korean
-  // #define USE_HQP_CONTINUOUS_BETA
+  #define USE_HQP_Korean
+  #define USE_HQP_CONTINUOUS_BETA
 #endif
 
 

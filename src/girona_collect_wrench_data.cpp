@@ -1,0 +1,430 @@
+#include "girona_collect_wrench_data.h"
+
+#include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
+#include <utility>
+
+#include <yaml-cpp/yaml.h>
+// #define DEBUG_CONTROLLER 
+namespace sfc {
+
+void GironaController::reconfigCb(sensorless_force_control::ControllerCollectDataConfig& config,
+                                  uint32_t /*level*/) {
+  std::lock_guard<std::mutex> lock(cfg_mutex_);
+
+  xyz_ref_(0) = static_cast<sfc::Real>(config.xyz_ref_1);
+  xyz_ref_(1) = static_cast<sfc::Real>(config.xyz_ref_2);
+  xyz_ref_(2) = static_cast<sfc::Real>(config.xyz_ref_3);
+
+  desired_pitch_ = static_cast<sfc::Real>(config.desired_pitch);
+  ref_yaw_       = static_cast<sfc::Real>(config.ref_rpy_3);
+
+  gain_rpy_(0) = static_cast<sfc::Real>(config.gain_rpy_1);
+  gain_rpy_(1) = static_cast<sfc::Real>(config.gain_rpy_2);
+  gain_rpy_(2) = static_cast<sfc::Real>(config.gain_rpy_3);
+
+  gain_nc_  = static_cast<sfc::Real>(config.gain_nc);
+  dq_lim_   = static_cast<sfc::Real>(config.dq_lim);
+  
+  // when you change the desired input, you should reset the controller manually
+  if (fabs(allocator_desired_input_-static_cast<sfc::Real>(config.allocator_desired_input))>1e-6)
+  {
+    allocator_desired_input_ = static_cast<sfc::Real>(config.allocator_desired_input);
+    const sfc::Vector6 desired_input{allocator_desired_input_, allocator_desired_input_,
+                                   allocator_desired_input_, allocator_desired_input_, 0, 0};
+    allocator_.setDesiredNormalizedInput(desired_input);
+    allocator_.reset();
+  }
+
+ 
+
+  pid_kp_(0) = static_cast<sfc::Real>(config.pid_kp_1);
+  pid_kp_(1) = static_cast<sfc::Real>(config.pid_kp_2);
+  pid_kp_(2) = static_cast<sfc::Real>(config.pid_kp_3);
+  pid_kp_(3) = static_cast<sfc::Real>(config.pid_kp_4);
+  pid_kp_(4) = static_cast<sfc::Real>(config.pid_kp_5);
+  pid_kp_(5) = static_cast<sfc::Real>(config.pid_kp_6);
+
+  pid_ki_(0) = static_cast<sfc::Real>(config.pid_ki_1);
+  pid_ki_(1) = static_cast<sfc::Real>(config.pid_ki_2);
+  pid_ki_(2) = static_cast<sfc::Real>(config.pid_ki_3);
+  pid_ki_(3) = static_cast<sfc::Real>(config.pid_ki_4);
+  pid_ki_(4) = static_cast<sfc::Real>(config.pid_ki_5);
+  pid_ki_(5) = static_cast<sfc::Real>(config.pid_ki_6);
+
+  pid_kd_(0) = static_cast<sfc::Real>(config.pid_kd_1);
+  pid_kd_(1) = static_cast<sfc::Real>(config.pid_kd_2);
+  pid_kd_(2) = static_cast<sfc::Real>(config.pid_kd_3);
+  pid_kd_(3) = static_cast<sfc::Real>(config.pid_kd_4);
+  pid_kd_(4) = static_cast<sfc::Real>(config.pid_kd_5);
+  pid_kd_(5) = static_cast<sfc::Real>(config.pid_kd_6);
+
+  pid_.setGains(pid_kp_, pid_ki_, pid_kd_);
+
+  enable_thruster_command_ = config.enable_thruster_command;
+  enable_arm_command_      = config.enable_arm_command;
+}
+
+GironaController::GironaController(ros::NodeHandle nh, ros::NodeHandle pnh)
+    : nh_(std::move(nh)),
+      pnh_(std::move(pnh)),
+      interface_(nh_, pnh_),
+      uvms_(),
+      spinner_(1) {
+  n_thrusters_ = static_cast<std::size_t>(pnh_.param<int>("n_thrusters", 6));
+  initializeController();
+}
+
+GironaController::~GironaController() {
+  stop();
+}
+
+void GironaController::start() {
+  if (running_.exchange(true)) {
+    return;
+  }
+  interface_thread_ = std::thread(&GironaController::interfaceThread, this);
+  if (!control_running_.exchange(true)) {
+    control_thread_ = std::thread(&GironaController::controlThread, this);
+  }
+}
+
+void GironaController::stop() {
+  if (!running_.exchange(false)) {
+    return;
+  }
+  control_running_.store(false);
+  spinner_.stop();
+  if (interface_thread_.joinable()) {
+    interface_thread_.join();
+  }
+  if (control_thread_.joinable()) {
+    control_thread_.join();
+  }
+  if (logger_open_) {
+    logger_.close();
+    logger_open_ = false;
+  }
+  
+}
+
+void GironaController::interfaceThread() {
+  spinner_.start();
+  while (running_.load() && ros::ok()) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+}
+
+void GironaController::controlThread() {
+    ros::Duration(1.0).sleep();
+    ros::Rate rate(10.0);
+    sfc::Vector6 thrust_forces{};
+    sfc::Vector6 setpoints{};
+    sfc::Vector6 joint_velocities{};
+    ros::Time last = ros::Time::now();
+    ros::Time reset_time = ros::Time::now();
+    Vector6 desired_joint_position = getRandomJointPosition();
+    sfc::Real desired_depth = getRandomAngle(1.0,2.5);
+
+    int stable_count = 0;
+    int log_count = 0;
+    int log_num   = 10;
+    bool stable_flag = false;
+    while (control_running_.load() && ros::ok()) {
+        
+        ros::Time now = ros::Time::now();
+        double dt = (now - last).toSec();
+        last = now;
+
+        uvms_.setVehicleState(interface_.vehicleState());
+        uvms_.setManipulatorState(interface_.manipulatorState());
+        const sfc::Vector6 ft_sensor_feedback = interface_.wrench();
+
+
+        constexpr std::size_t kSysDof = 12;
+        sfc::Matrix<kSysDof, kSysDof> N = sfc::identity<kSysDof>();
+        sfc::Vector<kSysDof> zeta{};
+        const sfc::Real damping = static_cast<sfc::Real>(1e-3);
+        
+        // Task: Vehicle position
+        const sfc::Vector<3> xyz_ref{0,0,desired_depth};
+        const sfc::Vector<3> xyz_gain{2, 2, 1};
+        sfc::Matrix<3, kSysDof> J_xyz{};
+        sfc::Vector<3> sigma_xyz{};
+        sfc::Vector<3> task_vel_xyz{};
+        sfc::buildVehiclePositionTask(uvms_, xyz_ref, J_xyz, sigma_xyz);
+        sfc::buildTaskVelocity<3>(sfc::Vector3{},sigma_xyz,xyz_gain,task_vel_xyz);
+        zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(task_vel_xyz, J_xyz, N, zeta, damping);
+        #ifdef DEBUG_CONTROLLER
+          sfc::print(sigma_xyz,std::cout,"sigma_xyz");
+          sfc::print(zeta,std::cout,"zeta");
+        #endif
+        // Task 1: roll/pitch stabilization
+        // sfc::Matrix<2, kSysDof> J_rp{};
+        // sfc::Vector<2> sigma_rp{};
+        // const sfc::Vector<2> rp_ref{0.0,0.0};
+        // sfc::buildRollPitchTask(uvms_, rp_ref, J_rp, sigma_rp);
+        // zeta = sfc::taskPrioritySolveStep<kSysDof, 2>(sigma_rp, J_rp, N, zeta, damping);
+        // Task 1.5: roll/pitch/yaw stabilization
+        const sfc::Vector<3> rpy_ref{0.0, 0.0, static_cast<sfc::Real>(ref_yaw_)};
+        const sfc::Vector<3> rpy_gain = gain_rpy_;
+        sfc::Matrix<3, kSysDof> J_rpy{};
+        sfc::Vector<3> sigma_rpy{};
+        sfc::Vector<3> task_vel_rpy{};
+        sfc::buildRollPitchYawTask(uvms_, rpy_ref, J_rpy, sigma_rpy);
+        sfc::buildTaskVelocity<3>(sfc::Vector3{},sigma_rpy,rpy_gain,task_vel_rpy);
+        zeta = sfc::taskPrioritySolveStep<kSysDof, 3>(task_vel_rpy, J_rpy, N, zeta, damping);
+        #ifdef DEBUG_CONTROLLER
+          sfc::print(sigma_rpy,std::cout,"sigma_rpy");
+          sfc::print(zeta,std::cout,"zeta");
+        #endif
+
+        // Task 3: nominal joint configuration
+        const sfc::Vector<6> nominal_config = desired_joint_position;
+        // const sfc::Vector<6> nominal_config{0,0,0,0,0,0};
+        const sfc::Vector<6> nominal_gain{gain_nc_,gain_nc_,gain_nc_,gain_nc_,gain_nc_,gain_nc_};
+        sfc::Matrix<6, kSysDof> J_nominal{};
+        sfc::Vector<6> sigma_nominal{};
+        sfc::Vector<6> task_vel_nominal{};
+        sfc::buildNominalConfigTask(uvms_, nominal_config, J_nominal, sigma_nominal);
+        sfc::buildTaskVelocity<6>(sfc::Vector6{},sigma_nominal,nominal_gain,task_vel_nominal);
+        zeta = sfc::taskPrioritySolveStep<kSysDof, 6>(sigma_nominal, J_nominal, N, zeta, damping);
+        #ifdef DEBUG_CONTROLLER
+          sfc::print(zeta,std::cout,"velocity");
+        #endif
+        
+        if(!stable_flag){
+          // add logic, we have to stay in the threshold for a certain time.
+          if( sfc::vectorNorm(uvms_.vehicleVelocity())< 0.01
+              && sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position)< 0.05
+              && (ros::Time::now().toSec()-reset_time.toSec()) > 30 // big than 30 seconds
+            ){
+              stable_count++;
+              // std::cout << stable_count;
+              if (stable_count >10){ //10hz
+                stable_count=0;
+                stable_flag = true;
+                }
+            }else{
+              stable_count=0;
+              std::cout << " vehicle velocity norm " << sfc::vectorNorm(uvms_.vehicleVelocity()) 
+              << " joint pos err norm " 
+              << sfc::vectorNorm(uvms_.manipulatorPosition()-desired_joint_position) 
+              << std::endl;
+            }
+          
+          if(ros::Time::now().toSec()-reset_time.toSec() > 200 ){
+            std::cout << " Time out. " << std::endl;
+            reset_time = ros::Time::now(); //reset time
+            desired_joint_position = getRandomJointPosition();
+            desired_depth = getRandomAngle(1.0,2.5);
+          }
+
+        }else{
+          // log
+          if(log_count<log_num){
+            log_count++;
+            logger_.beginFrame(ros::Time::now().toSec());
+            logger_.logVector("eta1", uvms_.vehiclePosition());
+            logger_.logVector("eta2", uvms_.vehicleRpy());
+            logger_.logVector("q", uvms_.manipulatorPosition());
+            logger_.logVector("x_ee_I", uvms_.forwardKinematics().translation());
+            logger_.logVector("thrust_forces", thrust_forces);
+            logger_.logVector("setpoints", setpoints);
+            logger_.logVector("zeta_d", zeta);
+            logger_.logVector("nu", uvms_.vehicleVelocity());
+            logger_.logVector("sigma_xyz", sigma_xyz);
+            logger_.logVector("sigma_rpy", sigma_rpy);
+            logger_.logVector("sigma_nominal", sigma_nominal);
+            logger_.logVector("ft_sensor_feedback", ft_sensor_feedback);
+            logger_.endFrame();
+          }else{
+            log_count = 0;
+            stable_flag=false;
+            std::cout << " vehicle velocity norm " << sfc::vectorNorm(uvms_.vehicleVelocity()) 
+              << " joint pos err norm " 
+              << std::endl;
+            reset_time = ros::Time::now(); //reset time
+            desired_joint_position = getRandomJointPosition();
+            desired_depth = getRandomAngle(1.0,2.5);
+            sfc::print(desired_joint_position,std::cout,"desired_joint_position");
+            std::cout << "next desired depth is " << desired_depth << std::endl;
+          }
+          
+
+        }
+        
+
+
+
+        sfc::Vector6 nu_d{zeta(0),zeta(1),zeta(2),zeta(3),zeta(4),zeta(5)};
+        sfc::Vector6 error = nu_d - uvms_.vehicleVelocity();
+        sfc::Vector6 control_wrench = pid_.update(error,dt);
+
+
+        thrust_forces = allocator_.allocate(control_wrench,0.0001);
+        setpoints = convertThrustsToSetpoints(thrust_forces);
+        #ifdef DEBUG_CONTROLLER
+          sfc::print(control_wrench,std::cout,"control wrench");
+          sfc::print(setpoints,std::cout,"setpoints");
+        #endif
+        const sfc::Real dq_lim = dq_lim_;
+        for (int i = 0; i < 6; ++i) {
+          sfc::Real v = zeta(6 + i);
+          joint_velocities(i) = v >  dq_lim ?  dq_lim :
+                                 v < -dq_lim ? -dq_lim : v;
+        }
+        // joint_velocities(0) = 0.0;
+        // joint_velocities(1) = 0.0;
+        // joint_velocities(2) = 0.0;
+        // joint_velocities(3) = 0.0;
+        // joint_velocities(4) = 0.0;
+
+        if (enable_thruster_command_) { interface_.sendThrusterSetpoints(setpoints); }else{
+          pid_.reset();
+        }
+        if (enable_arm_command_)      { interface_.sendJointVelocityCommand(joint_velocities); }
+        rate.sleep();
+      }
+
+}
+
+void GironaController::initializeController() {
+  // Placeholder for DH parameters and transforms; configure as needed by your arm.
+  ROS_INFO("Initialize UVMS model from yaml file (obtained from URDF)");
+  
+  sfc::ManipulatorFromYAML<GironaInterface::kArmDof> manip("bravo");
+  const std::string yaml_path =
+      "/home/sia/girona_ws/src/sensorless_force_control/config/control/bravo_joints.yaml";
+  ROS_INFO("Yaml file path is: %s", yaml_path.c_str());
+  const std::array<std::string, GironaInterface::kArmDof> joint_names = {{
+      "bravo/joint1",
+      "bravo/joint2",
+      "bravo/joint3",
+      "bravo/joint4",
+      "bravo/joint5",
+      "bravo/joint6",
+  }};
+  manip.setParametersFromFile(yaml_path, joint_names);
+  // get the params from ros
+  sfc::HomogeneousMatrix t_tool_linkend = sfc::HomogeneousMatrix::fromRotationTranslation
+                                        (sfc::RotationMatrix::fromRPY(0,0,-2.88), sfc::Vector3{0.084, 0.022, 0.372});
+  manip.setToolTransformationFromT(t_tool_linkend);
+  // read from rosrun tf tf_echo girona1000/base_link girona1000/bravo/base_link no, this is wrong. we should use the origin link
+  // rosrun tf tf_echo girona1000/base_link girona1000/bravo/base_link
+  // rostopic echo /girona1000/dynamics/odometry
+  sfc::RotationMatrix r = sfc::RotationMatrix::fromRPY(-3.117, -0.001, 0.189);
+  sfc::Vector3 t = sfc::Vector3{0.739, 0.133, 0.358}; //from bravo/base_link to girona1000/base_link
+  // sfc::Vector3 t = sfc::Vector3{0.732, -0.138, 0.485};    //from bravo/base_link to girona1000/origin
+  sfc::HomogeneousMatrix t_0_b = sfc::HomogeneousMatrix::fromRotationTranslation(r, t);
+  uvms_.setManipulatorBaseToVehicleTransform(t_0_b);
+  uvms_.setManipulator(manip);
+  
+  sfc::HomogeneousMatrix t_ee_ned = uvms_.forwardKinematics();
+  sfc::Vector3 rpy = sfc::rpyFromRotationMatrix(t_ee_ned.rotation());
+  sfc::Vector3 xyz = t_ee_ned.translation();
+  ROS_INFO("Parameters init success! Do the transformation test! Try call cmd at zero joint state!");
+  ROS_INFO("rosrun tf tf_echo girona1000/base_link girona1000/bravo/cp_probe_tip_link");
+  ROS_INFO("EE Position (meters) X %f, Y %f, Z %f.", xyz(0),xyz(1),xyz(2));
+  ROS_INFO("EE RPY (radians) Rx %f, Ry %f, Rz %f.",  rpy(0),rpy(1),rpy(2));
+  // sfc::print(sfc::rpyFromRotationMatrix(t_ee_ned.rotation()),std::cout,"zero state ee rpy");
+  // sfc::print(t_ee_ned.translation(),std::cout,"zero state ee xyz");
+  
+  
+  ROS_INFO("Now we initialize the TCM matrix from Yaml");
+  const std::string tcm_yaml_path = 
+  "/home/sia/girona_ws/src/sensorless_force_control/config/control/tcm_with_thruster_torque.yaml";
+  try {
+    YAML::Node root = YAML::LoadFile(tcm_yaml_path);
+    const YAML::Node tcm_node = root["tcm"];
+    if (!tcm_node) {
+      throw std::runtime_error("Missing 'tcm' section in tcm.yaml");
+    }
+    const std::size_t rows = tcm_node["rows"].as<std::size_t>();
+    const std::size_t cols = tcm_node["cols"].as<std::size_t>();
+    if (rows != 6 || cols != 6) {
+      throw std::runtime_error("TCM must be 6x6");
+    }
+    const YAML::Node data = tcm_node["data"];
+    if (!data || !data.IsSequence() || data.size() != 6) {
+      throw std::runtime_error("TCM data must be a 6x6 sequence");
+    }
+
+    sfc::Matrix<6, 6> tcm{};
+    for (std::size_t r = 0; r < 6; ++r) {
+      const YAML::Node row = data[r];
+      if (!row.IsSequence() || row.size() != 6) {
+        throw std::runtime_error("Each TCM row must have 6 elements");
+      }
+      for (std::size_t c = 0; c < 6; ++c) {
+        tcm(r, c) = static_cast<sfc::Real>(row[c].as<double>());
+      }
+    }
+
+    sfc::Vector6 desired_input{0.55,0.55,0.55,0.55,0,0};
+    allocator_.setAllocationMatrix(tcm);
+    sfc::Vector6 max_force{100,100,100,100,100,100};
+    sfc::Vector6 min_force{-100,-100,-100,-100,-100,-100};
+    allocator_.setLimits(min_force,max_force);
+    allocator_.setNormalizedInputScale(max_force);
+    allocator_.setDesiredNormalizedInput(desired_input);
+    allocator_.setWrenchWeights(sfc::Vector6{1.0, 1.0, 1.0, 1.0, 1.0, 1.0});
+    allocator_.setWorkingPointWeights(sfc::Vector6{1.0, 1.0, 1.0, 1.0, 1.0, 1.0});
+    allocator_.setSmoothnessWeights(sfc::Vector6{0.1, 0.1, 0.1, 0.1, 0.1, 0.1});
+    sfc::print(tcm,std::cout,"TCM matrix");
+    ROS_INFO("TCM matrix loaded and set.");
+
+  } catch (const std::exception& ex) {
+    ROS_ERROR("Failed to load TCM: %s", ex.what());
+  }
+
+  ROS_INFO("Init PID controller");
+  sfc::Vector6 kp{50,50,50,0,50,20};
+  sfc::Vector6 ki{1,1,5,0,10,1};
+  sfc::Vector6 kd{8,8,8,0,4,4};
+  sfc::Vector6 i_sat{50,50,100,0,100,10};
+  pid_.setGains(kp,ki,kd);
+  pid_.setIntegratorLimits(i_sat);
+
+  p_.setGains(sfc::Vector6{1,1,1,1,1,1});
+
+  const std::string log_dir = "/home/sia/girona_ws/src/sensorless_force_control/log/";
+  const std::time_t now = std::time(nullptr);
+  std::tm tm_now{};
+  localtime_r(&now, &tm_now);
+  std::ostringstream name;
+  name << "pool_experiment_" << std::put_time(&tm_now, "%Y%m%d%H%M%S") << ".csv";
+  const std::string csv_path = log_dir + name.str();
+
+  logger_ = sfc::Logger(csv_path);
+  logger_open_ = logger_.open();
+  if (!logger_open_) {
+    ROS_ERROR("Failed to open CSV file: %s", csv_path.c_str());
+  } else {
+    ROS_INFO("CSV log path: %s", csv_path.c_str());
+  }
+
+  // Dynamic reconfigure server
+  dynamic_reconfigure::Server<sensorless_force_control::ControllerCollectDataConfig>::CallbackType cb;
+  cb = boost::bind(&GironaController::reconfigCb, this, _1, _2);
+  reconfig_server_.setCallback(cb);
+  ROS_INFO("Dynamic reconfigure server started.");
+}
+
+
+
+}  // namespace sfc
+
+int main(int argc, char** argv) {
+  ros::init(argc, argv, "girona_controller");
+  ros::NodeHandle pnh("~");
+  const std::string robot_name = pnh.param<std::string>("robot_name", "girona500");
+  ros::NodeHandle nh("/" + robot_name);
+  sfc::GironaController controller(nh, pnh);
+  controller.start();
+  ros::waitForShutdown();
+  controller.stop();
+  return 0;
+}

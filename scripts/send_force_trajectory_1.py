@@ -17,10 +17,12 @@ import rospy
 from geometry_msgs.msg import WrenchStamped
 from geometry_msgs.msg import PoseStamped
 from dynamic_reconfigure.client import Client as DynClient
-
+from utilts_uvms_math import Rpy2Rot
 # 
 POS_A = [0.0,  3.6,  2.0]
 POS_B = [0.0,  3.80,  2.0]
+
+
 QUAT_FIXED = [0.0, 0.0, -0.707, -0.707] 
 
 SEG_DURATION = 30.0   # 每段时长 (s)
@@ -143,6 +145,9 @@ def make_msg(wrench):
 
 
 def run():
+    time, traj = build_force_trajectory()
+    plot_trajectory(time, traj)
+
     rospy.init_node("send_force_trajectory", anonymous=False)
     pub_pos  = rospy.Publisher("/girona1000xh/ee_pose_cmd", PoseStamped, queue_size=10)
     pub  = rospy.Publisher("/girona1000xh/desired_wrench", WrenchStamped, queue_size=10)

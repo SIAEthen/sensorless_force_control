@@ -20,6 +20,7 @@ GironaInterface::GironaInterface(ros::NodeHandle nh, ros::NodeHandle pnh)
       pnh_.param<std::string>("joint_velocity_topic",
                               "controller/joint_velocity_cmd");
   wrench_topic_ = pnh_.param<std::string>("wrench_topic", "bravo_right/ft_sensor/wrench");
+  yaw_offset_ = static_cast<sfc::Real>(pnh_.param<double>("odom_yaw_offset", 2.37));
 
   odom_sub_ = nh_.subscribe(odom_topic_, 10, &GironaInterface::odomCallback, this);
   joint_sub_ = nh_.subscribe(joint_state_topic_, 10, &GironaInterface::jointCallback, this);
@@ -94,14 +95,19 @@ void GironaInterface::odomCallback(const nav_msgs::Odometry& msg) {
   const sfc::Vector3 p_base_origin{0.0, 0.0, -0.214};
   const sfc::Vector3 p_ned_origin = p_ned_base + (r_ned_base * p_base_origin);
 
-  state.position[0] = p_ned_origin(0);
-  state.position[1] = p_ned_origin(1);
-  state.position[2] = p_ned_origin(2);
+  // Apply fixed yaw rotation to re-align the NED frame heading.
+  const sfc::RotationMatrix R_offset = sfc::RotationMatrix::fromRPY(0, 0, yaw_offset_);
+  const sfc::Vector3 p_rotated = R_offset * p_ned_origin;
+
+  state.position[0] = p_rotated(0);
+  state.position[1] = p_rotated(1);
+  state.position[2] = p_rotated(2);   // z unchanged by yaw rotation
 
   const sfc::Vector3 rpy = sfc::rpyFromQuaternion(q);
   state.position[3] = rpy(0);
   state.position[4] = rpy(1);
-  state.position[5] = rpy(2);
+  const sfc::Real raw_yaw = rpy(2) + yaw_offset_;
+  state.position[5] = raw_yaw - sfc::Real(2.0 * M_PI) * std::floor((raw_yaw + sfc::Real(M_PI)) / sfc::Real(2.0 * M_PI));
 
   // Odometry twist is assumed to be expressed in child_frame_id (base_link).
   // Convert linear velocity from base origin to origin point with rigid-body relation:

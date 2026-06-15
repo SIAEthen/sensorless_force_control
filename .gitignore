@@ -51,3 +51,6 @@ Thumbs.db
 # csv files
 *.csv
 
+# zip files
+*.zip
+

@@ -31,12 +31,12 @@ def run():
     # 2. 关掉 EE task，等 30s
     dyn.update_configuration({"enable_ee_task": False})
     rospy.loginfo("EE task disabled. Waiting 50 s ...")
-    rospy.sleep(50.0)
+    rospy.sleep(40.0)
 
     # 3. 重新激活 EE task，等 30s
     dyn.update_configuration({"enable_ee_task": True})
     rospy.loginfo("EE task enabled. Waiting 50 s ...")
-    rospy.sleep(50.0)
+    rospy.sleep(40.0)
 
     # 4. 关 logging
     dyn.update_configuration({"enable_logging": False})

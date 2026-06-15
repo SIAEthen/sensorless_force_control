@@ -17,10 +17,12 @@ import rospy
 from geometry_msgs.msg import WrenchStamped
 from geometry_msgs.msg import PoseStamped
 from dynamic_reconfigure.client import Client as DynClient
-
+from utilts_uvms_math import Rpy2Rot
 # 
-POS_A = [0.0,  3.6,  2.0]
-POS_B = [0.0,  3.80,  2.0]
+POS_A = [0.0,  3.0,  2.0]
+POS_B = [0.0,  3.3,  2.0]
+
+
 QUAT_FIXED = [0.0, 0.0, -0.707, -0.707] 
 
 SEG_DURATION = 30.0   # 每段时长 (s)
@@ -29,7 +31,7 @@ FRAME_ID     = "world_ned"
 def build_trajectory():
     """预先生成完整轨迹点列表，返回 list of [x, y, z]。"""
     steps = int(SEG_DURATION * PUBLISH_HZ)
-    segments = [(POS_A, POS_B)]
+    segments = [(POS_A, POS_A),(POS_A, POS_B)]
     traj = []
     for p_start, p_end in segments:
         p0 = np.array(p_start, dtype=float)
@@ -57,11 +59,11 @@ def make_msg(pos):
 
 # 第一段：常值力，持续 T1 秒
 W_CONST = [0.0, 15.0, 0.0, 0.0, 0.0, 0.0]   # [fx, fy, fz, tx, ty, tz]  N / N·m
-T1      = 50.0                                # 第一段时长 (s)
+T1      = 40.0                                # 第一段时长 (s)
 
 # 第二段：正弦信号，每个频率持续恰好一个周期 (T = 1/f)
-W_AMP     = [0.0, 3.0, 0.0, 0.0, 0.0, 0.0]              # 各轴幅值 (N / N·m)
-FREQ_LIST = [0.01,0.02,0.04,0.06,0.08,0.1]  # Hz
+W_AMP     = [0.0, 5.0, 0.0, 0.0, 0.0, 0.0]              # 各轴幅值 (N / N·m)
+FREQ_LIST = [0.02,0.03,0.04,0.05,0.06]  # Hz
 
 PUBLISH_HZ = 10     # 发布频率 (Hz)
 FRAME_ID   = "girona1000/base_link"
@@ -143,31 +145,23 @@ def make_msg(wrench):
 
 
 def run():
+    # ── build & plot everything before rospy.init_node() starts threads ──────
     time, traj = build_force_trajectory()
+    traj_pos   = build_trajectory()
     plot_trajectory(time, traj)
+    # ─────────────────────────────────────────────────────────────────────────
 
     rospy.init_node("send_force_trajectory", anonymous=False)
-    pub_pos  = rospy.Publisher("/girona1000xh/ee_pose_cmd", PoseStamped, queue_size=10)
-    pub  = rospy.Publisher("/girona1000xh/desired_wrench", WrenchStamped, queue_size=10)
-    rate = rospy.Rate(PUBLISH_HZ)
+    pub_pos = rospy.Publisher("/girona1000xh/ee_pose_cmd",    PoseStamped,    queue_size=10)
+    pub     = rospy.Publisher("/girona1000xh/desired_wrench", WrenchStamped,  queue_size=10)
+    rate    = rospy.Rate(PUBLISH_HZ)
+    dyn     = DynClient("/girona_controller", timeout=5.0)
 
-    dyn = DynClient("/girona_controller", timeout=5.0)
-    
-
-
-    rospy.loginfo("Generating force trajectory...")
-    time, traj = build_force_trajectory()
-    total_dur = time[-1]
-    rospy.loginfo("Trajectory ready: %d points, total %.2f s", len(traj), total_dur)
-
-    plot_trajectory(time, traj)
-    rospy.loginfo("Generating trajectory...")
-    traj_pos = build_trajectory()
-    rospy.loginfo("Trajectory ready: %d points, total %.1f s",
-                  len(traj), len(traj) / float(PUBLISH_HZ))
+    rospy.loginfo("Trajectories ready — force: %d pts (%.1f s), pos: %d pts (%.1f s)",
+                  len(traj), time[-1], len(traj_pos), len(traj_pos) / float(PUBLISH_HZ))
     
     
-    dyn.update_configuration({"enable_admittance": True, "enable_logging": False})
+    dyn.update_configuration({"enable_admittance": True, "enable_logging": True})
     rospy.loginfo("Publishing pos trajectory...")
     for pos in traj_pos:
         if rospy.is_shutdown():
@@ -182,8 +176,6 @@ def run():
     seg2_idx  = int(T1 * PUBLISH_HZ)
     freq_steps = [max(1, int((1.0 / f) * PUBLISH_HZ)) for f in FREQ_LIST]
     boundaries = [seg2_idx + sum(freq_steps[:k]) for k in range(len(FREQ_LIST))]
-
-    dyn.update_configuration({"enable_admittance": True, "enable_logging": True})
 
     for idx, wrench in enumerate(traj):
         if rospy.is_shutdown():

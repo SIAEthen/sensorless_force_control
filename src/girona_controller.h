@@ -121,11 +121,19 @@ class GironaController {
   ros::Subscriber joycmd_sub_;
   ros::Subscriber ee_pose_cmd_sub_;
   ros::Subscriber desired_wrench_sub_;
+  #ifdef USE_HAND
+    ros::Subscriber handcmd_sub_;
+    void handCmdCallback(const geometry_msgs::Twist::ConstPtr& msg);
+    geometry_msgs::Twist hand_cmd_{};
+  #endif
+  
   ros::ServiceServer allocator_mu_srv_;
   void joyCmdCallback(const geometry_msgs::Twist::ConstPtr& msg);
   geometry_msgs::Twist joy_cmd_{};
   void eePoseCmdCallback(const geometry_msgs::PoseStamped::ConstPtr& msg);
   geometry_msgs::PoseStamped ee_pose_cmd_{};
+
+  
   bool ee_pose_cmd_received_{false};
   void desiredWrenchCallback(const geometry_msgs::WrenchStamped::ConstPtr& msg);
 
@@ -207,6 +215,9 @@ class GironaController {
   #endif
   #ifdef QP_ALLOCATOR_010
     sfc::Vector6 allocator_desired_normalized_input_{0.10, 0.10, 0.10, 0.10, 0.0, 0.0};
+  #endif
+  #ifdef QP_ALLOCATOR_005
+    sfc::Vector6 allocator_desired_normalized_input_{0.05, 0.05, 0.05, 0.05, 0.0, 0.0};
   #endif
   #ifdef QP_ALLOCATOR_000
     sfc::Vector6 allocator_desired_normalized_input_{0.00, 0.00, 0.00, 0.00, 0.0, 0.0};

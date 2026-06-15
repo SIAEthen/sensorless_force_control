@@ -343,10 +343,13 @@ void GironaController::controlThread() {
       sfc::Vector3 x_ee_d{0,0,2.0};      // for free floating moving
     #endif
     #ifdef OBSERVER_TEST
-      sfc::Vector3 x_ee_d{0.0,0.0,2.0};      // for observer test
+      
     #endif
     // sfc::Quaternion q_ee_d = sfc::Quaternion::fromRPY(-sfc::kPi2,-sfc::kPi2,0.0);
     sfc::Quaternion q_ee_d = sfc::Quaternion{0,0,-0.707,-0.707}; // point the panel
+    // sfc::Quaternion q_ee_d = sfc::Quaternion{0.307,0.679,-0.163,0.647}; // point the panel
+    // sfc::Quaternion q_ee_d = uvms_.endEffectorQuaternionNed(); // point the panel
+    sfc::Vector3 x_ee_d{0,0,2.0};       // for observer test
     
     #ifdef OBSERVER_TEST
       // q_ee_d = sfc::Quaternion{0.0,0.0,0.0,1.0};      // for observer test
@@ -399,9 +402,17 @@ void GironaController::controlThread() {
         ros::Time now = ros::Time::now();
         double dt = (now - last).toSec();
         last = now;
-
+        
         // update ee cmds
         v_ee_d = Vector6{};
+
+        #ifdef USE_HAND
+          // joystick fallback
+          const Vector6 velcmd{hand_cmd_.linear.x,hand_cmd_.linear.y,hand_cmd_.linear.z,
+                               hand_cmd_.angular.x,hand_cmd_.angular.y,hand_cmd_.angular.z};
+          v_ee_d = velcmd;
+        #endif
+        
         if (ee_pose_cmd_received_) {
           const sfc::Vector3 x_new{
               static_cast<sfc::Real>(ee_pose_cmd_.pose.position.x),
@@ -429,8 +440,12 @@ void GironaController::controlThread() {
           const Vector6 velcmd{joy_cmd_.linear.x,joy_cmd_.linear.y,joy_cmd_.linear.z,
                                joy_cmd_.angular.x,joy_cmd_.angular.y,joy_cmd_.angular.z};
           velcmd2configurations(velcmd,x_ee_d,q_ee_d,dt);
-          v_ee_d = velcmd;
+          if(vectorNorm(v_ee_d)<0.000001){
+            v_ee_d = velcmd;
+          }
+          
         }
+
         #ifdef DEBUG_JOYSTICK
             sfc::print(x_ee_d,std::cout,"x_ee_d");
             sfc::print(q_ee_d,std::cout,"q_ee_d");
@@ -455,7 +470,7 @@ void GironaController::controlThread() {
 
         geometry_msgs::TransformStamped t2;
         t2.header.stamp = ros::Time::now();
-        t2.header.frame_id = "world_ned";   // 你的世界系
+        t2.header.frame_id = "world_xh";   // 你的世界系
         t2.child_frame_id = "ee_r";         // 你想看的目标系
 
         t2.transform.translation.x = x_ee_r(0);
@@ -483,9 +498,27 @@ void GironaController::controlThread() {
         t3.transform.rotation.x = q_cam_in_B.x;
         t3.transform.rotation.y = q_cam_in_B.y;
         t3.transform.rotation.z = q_cam_in_B.z;
-        tf_broadcaster_d_.sendTransform(t3);}
+        tf_broadcaster_d_.sendTransform(t3);
+          
+        geometry_msgs::TransformStamped tn;
+        tn.header.stamp = ros::Time::now();
+        tn.header.frame_id = "world_ned";   // 你的世界系
+        tn.child_frame_id = "world_xh";         // 你想看的目标系
+        tn.transform.translation.x = 0;
+        tn.transform.translation.y = 0;
+        tn.transform.translation.z = 0;
+        Quaternion q_world = sfc::Quaternion::fromRPY(0,0.0,2.37);
+        // 注意：你的 Quaternion 是 w,x,y,z
+        tn.transform.rotation.w = q_world.w;
+        tn.transform.rotation.x = q_world.x;
+        tn.transform.rotation.y = q_world.y;
+        tn.transform.rotation.z = q_world.z;
+        tf_broadcaster_d_.sendTransform(tn);
+      }
+
+
         
-        // 
+
          
         constexpr std::size_t kSysDof = 12;
         sfc::Matrix<kSysDof, kSysDof> N = sfc::identity<kSysDof>();
@@ -1130,13 +1163,18 @@ void GironaController::controlThread() {
           #ifdef PID
             // sfc::Vector6 pid_err{};
             // pid_err(0) = nu_error(0);
-            // pid_err(0) = nu_error(1);
+            // pid_err(1) = nu_error(1);
+            // pid_err(2) = nu_error(2);
+            // pid_err(3) = nu_error(3);
+            // pid_err(4) = nu_error(4);
+            // pid_err(5) = nu_error(5);
             control_wrench = pid_.update(nu_error,dt);
           #endif
           #ifdef STSMC
             // control_wrench = stsmc_.update(nu_error,Vector6{},gravity,dt);
             control_wrench = stsmc_.update(nu_error,gravity,dt);
             control_wrench(3) = 0.0;
+            control_wrench(4) = 0.0;
             // control_wrench = stsmc_.update(nu_error,dt);
           #endif
           // thruster_force = allocator_.allocate(control_wrench,allocator_damping);
@@ -1165,7 +1203,7 @@ void GironaController::controlThread() {
 
         // sensor feedback
         const sfc::HomogeneousMatrix t_ft_tip = sfc::HomogeneousMatrix::fromRotationTranslation
-                                        (sfc::RotationMatrix::fromRPY(-0.000, -0.000, 2.880), sfc::Vector3{0.087, 0.000, -0.245});
+                                        (sfc::RotationMatrix::fromRPY(0.0, 0.0, 0.0), sfc::Vector3{0.0, 0.0, 0.1});
         const auto t_tip_inertia = uvms_.forwardKinematics();
         const auto t_ft_inertia = t_tip_inertia * t_ft_tip;
         const sfc::Vector6 sensor_feedback_filtered = wrench_filter_.update(sensor_feedback,dt);
@@ -1178,7 +1216,7 @@ void GironaController::controlThread() {
           sfc::RotationMatrix::fromRPY(0,0, wrenchsensor_parameters_(4)),
           sfc::Vector3{0,0,0});
         const sfc::Vector6 sensor_feedback_calibrated = sensor_feedback_filtered - 
-                    U_contact_wrench * sfc::Regressor_stupid(t_ft_inertia.rotation()) * stupid_params;
+                    (U_contact_wrench * sfc::Regressor_stupid(t_ft_inertia.rotation()) * stupid_params + wrench_offset_params);
         const sfc::Matrix<6,6> U_ft_tip = sfc::U_mat(t_ft_tip.rotation(),t_ft_tip.translation());
         const sfc::Vector6 sensor_feedback_calibrated_ontiplink = U_ft_tip * sensor_feedback_calibrated;
         
@@ -1234,10 +1272,11 @@ void GironaController::controlThread() {
 
         #ifdef USE_ADMITTANCE
           // admittance controller
-          const Vector6 contact_force_torque = enable_admittance
+          
+          #ifdef USE_VARIABLE_ADMITTANCE
+            const Vector6 contact_force_torque = enable_admittance
               ? applyContinuousDeadzone(h_e_inertiaframe, admittance_deadzone)
               : Vector6{};
-          #ifdef USE_VARIABLE_ADMITTANCE
             sfc::VariableAdmittanceController::Output out;
               // out=variable_admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
               out = enable_admittance
@@ -1248,11 +1287,17 @@ void GironaController::controlThread() {
                 variable_admitance_controller_.reset(x_ee_d,q_ee_d);
               }
           #elif defined(USE_IROS_FORCE)
+            const Vector6 contact_force_torque = enable_admittance
+              ? applyContinuousDeadzone(h_e_inertiaframe, admittance_deadzone)
+              : Vector6{};
             sfc::IrosForceAdmittanceController::Output out;
             // set desired force
             out=iros_force_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
             Vector6 iros_force_stiffness = iros_force_controller_.getStiffness();
           #else
+            const Vector6 contact_force_torque = enable_admittance
+              ? applyContinuousDeadzone(h_e_inertiaframe, admittance_deadzone)
+              : Vector6{};
             sfc::QuaternionAdmittanceController::Output out;
             out=admitance_controller_.update(x_ee_d,q_ee_d,v_ee_d,contact_force_torque,dt);
           #endif // USE_VARIABLE_ADMITTANCE
@@ -1444,6 +1489,7 @@ void GironaController::controlThread() {
             #endif
             #ifdef USE_IROS_FORCE
               logger_.logVector("Stiffness",iros_force_stiffness);
+              logger_.logVector("desired_wrench",iros_force_controller_.getDesiredWrench());
             #endif
             
 
@@ -1465,10 +1511,15 @@ void GironaController::initializeController() {
       "/girona1000xh/ee_pose_cmd", 10, &GironaController::eePoseCmdCallback, this);
   desired_wrench_sub_ = nh_.subscribe<geometry_msgs::WrenchStamped>(
       "/girona1000xh/desired_wrench", 10, &GironaController::desiredWrenchCallback, this);
-  allocator_mu_srv_ = nh_.advertiseService("/girona1000xh/set_allocator_mu_d",
+  #ifdef USE_HAND
+    handcmd_sub_ = nh_.subscribe<geometry_msgs::Twist>(
+      "/girona1000xh/hand_cmd", 10, &GironaController::handCmdCallback, this);
+  #endif
+  
+      allocator_mu_srv_ = nh_.advertiseService("/girona1000xh/set_allocator_mu_d",
                                            &GironaController::setAllocatorMuCb,
                                            this);
-
+  
   #ifdef DEBUG_ROSTOPIC
     control_wrench_array_pub_ =
         nh_.advertise<std_msgs::Float64MultiArray>("debug/control_wrench", 10);
@@ -1637,7 +1688,7 @@ void GironaController::initializeController() {
   // const std::string dyn_yaml_path =
   //   "/home/sia/girona_ws/src/sensorless_force_control/config/control/model_optimized.yaml";
   const std::string dyn_yaml_path =
-    "/home/sia/girona_ws/src/sensorless_force_control/config/control/model_optimized_noised_system.yaml";  
+    "/home/sia/girona_ws/src/sensorless_force_control/config/control/model_optimized.yaml";  
     
   try {
     YAML::Node root = YAML::LoadFile(dyn_yaml_path);
@@ -1741,7 +1792,7 @@ void GironaController::initializeController() {
     std::tm tm_now{};
     localtime_r(&now, &tm_now);
     std::ostringstream name;
-    name << "noised_thruster_controller_data_" << std::put_time(&tm_now, "%Y%m%d%H%M%S") << ".csv";
+    name << "exp_data_" << std::put_time(&tm_now, "%Y%m%d%H%M%S") << ".csv";
     const std::string csv_path = log_dir + name.str();
 
     logger_ = sfc::Logger(csv_path);
@@ -1760,6 +1811,14 @@ void GironaController::joyCmdCallback(const geometry_msgs::Twist::ConstPtr& msg)
   }
   joy_cmd_ = *msg;
 }
+#ifdef USE_HAND
+  void GironaController::handCmdCallback(const geometry_msgs::Twist::ConstPtr& msg) {
+    if (!msg) {
+      return;
+    }
+    hand_cmd_ = *msg;
+  }
+#endif
 
 void GironaController::eePoseCmdCallback(const geometry_msgs::PoseStamped::ConstPtr& msg) {
   if (!msg) {

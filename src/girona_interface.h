@@ -64,6 +64,8 @@ class GironaInterface {
   bool have_vehicle_ = false;
   bool have_joint_ = false;
   bool have_wrench_ = false;
+
+  sfc::Real yaw_offset_{2.37};   // fixed yaw rotation applied to incoming odometry [rad]
 };
 
 }  // namespace sfc

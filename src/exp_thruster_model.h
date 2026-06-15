@@ -29,10 +29,22 @@ double girona_poly_nominal_model(double input){
     return output;
 }
 
+// as the horizontal thrusters are stronger, 
+// so we now do a calibration of the horizontal thrusters
+double horizontal_thruster_calibration(double force_expected){
+  return 0.652*force_expected + 0.814;
+}
+
 inline sfc::Vector<6> convertThrustsToSetpoints(const sfc::Vector<6> force){
   sfc::Vector<6> setpoints{};
   for(int8_t i=0; i<6;i++){
-    setpoints(i) = girona_poly_nominal_model(force(i));
+    // horizontal thrusters
+    if(i<4){
+      setpoints(i) = girona_poly_nominal_model(horizontal_thruster_calibration(force(i)));
+    }else{
+      setpoints(i) = girona_poly_nominal_model(force(i));
+    }
+    
   }
   return setpoints;
 }

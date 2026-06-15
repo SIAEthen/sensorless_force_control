@@ -72,6 +72,13 @@ class IrosForceAdmittanceController {
     w_hat_d_ = w_hat_d;
   }
 
+  const Vector6& getDesiredWrench() {
+    if (!w_hat_d_.isFinite()) {
+      throw std::runtime_error("IrosForceAdmittanceController: non-finite desired wrench");
+    }
+    return w_hat_d_;
+  }
+
   const Vector6& getStiffness() const { return k_; }
 
   void reset(const Vector3& pos_r, const Quaternion& q_r) {

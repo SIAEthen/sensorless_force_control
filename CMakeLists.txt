@@ -82,6 +82,19 @@ target_link_libraries(girona_controller_collect_data
 )
 
 
+add_executable(girona_collect_wrench_data
+  src/girona_collect_wrench_data.cpp
+  src/girona_interface.cpp
+  src/thruster_allocator_qpoases.cpp
+)
+target_link_libraries(girona_collect_wrench_data
+  ${catkin_LIBRARIES}
+  yaml-cpp
+  ${QPOASES_LIBRARY}
+)
+
+
+
 add_executable(joint_cmd_watchdog
   src/joint_cmd_watchdog.cpp
 )
